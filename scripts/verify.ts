@@ -33,7 +33,9 @@ const URL = `http://127.0.0.1:${PORT}/`;
 const VIEWPORT = { width: 1920, height: 1080 };
 /** Seconds to let the scene settle — exposure adaptation and the probe sweep both need time. */
 const SETTLE_MS = 15000;
-const SHOT_SETTLE_MS = 2200;
+// The probe sweeps six cube faces before the environment is complete, and the exposure
+// re-meters on a clock jump rather than adapting, so this only has to cover a probe sweep.
+const SHOT_SETTLE_MS = 3200;
 
 /** Tel Aviv, the documented default. Fixed here so screenshots are reproducible. */
 const LATITUDE = 32.08;

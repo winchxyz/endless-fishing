@@ -114,6 +114,8 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
         engine.settings.world.timeOverrideMs = parsed;
       }
       engine.settings.emit('world');
+      // A clock jump is a cut, not a sunset. Re-meter instead of crawling across five decades.
+      engine.get<Sky>('sky')?.resetAdaptation();
     },
 
     setTimeScale(scale: number): void {

@@ -92,6 +92,8 @@ export class Sky implements System {
   private adaptedIlluminance = 10000;
   private measuredSkyIlluminance = 10000;
   private exposureSampleCountdown = 0;
+  /** False until the first real measurement lands, so boot does not fade in from a guess. */
+  private adaptationPrimed = false;
 
   private constructor(engine: Engine, library: SkyLibrary, stars: StarField) {
     this.library = library;
@@ -129,6 +131,8 @@ export class Sky implements System {
         uEarthshine: { value: 0 },
         uAltitudeKm: { value: DEFAULT_EYE_HEIGHT_M / 1000 },
         uSkyIntensity: { value: SOLAR_CONSTANT_LUX },
+        uMoonSkyRadiance: { value: new Vector3() },
+        uAirglowRadiance: { value: new Vector3() },
       },
       depthTest: false,
       depthWrite: false,
@@ -202,6 +206,19 @@ export class Sky implements System {
 
     engine.scene.add(sky.dome, sky.stars.milkyWay, sky.stars.points);
     return sky;
+  }
+
+  /**
+   * Abandon the adapted exposure and re-meter from scratch on the next frame.
+   *
+   * Adaptation is deliberately slow — it models an eye, and an eye takes minutes to cross the
+   * five decades between noon and a moonlit sea. That is right when time flows, and wrong when
+   * time *jumps*: overriding the clock is a cut, not a sunset, and crawling towards the new
+   * exposure means every screenshot of a night is a photograph of a black frame.
+   */
+  resetAdaptation(): void {
+    this.exposureSampleCountdown = 0;
+    this.adaptationPrimed = false;
   }
 
   /** Scale from the atmosphere LUT's units to candela per square metre. */
@@ -378,6 +395,17 @@ export class Sky implements System {
     // Moon's own phase — brightest under a thin crescent, exactly as photographs show.
     const earthPhase = 1 - state.moon.illuminatedFraction;
     this.setUniform('uEarthshine', moonRadiance * 0.014 * earthPhase * earthPhase);
+
+    // Moonlight scattered by the atmosphere. Roughly 0.4% of the incident illuminance ends up
+    // as sky radiance, which puts a full moon at the measured ~0.001 cd/m². Bluer than the
+    // direct beam because Rayleigh scattering is, and because mesopic vision shifts blue.
+    const moonSky = (state.moonIlluminanceLux * 0.004) / Math.PI;
+    this.setVectorUniform('uMoonSkyRadiance', moonSky * 0.72, moonSky * 0.84, moonSky * 1.0);
+
+    // Airglow and integrated starlight — the floor the sky never goes below, and the reason a
+    // moonless sea still has a visible horizon. Fades out as soon as there is any real light.
+    const airglow = 2.4e-4 * (1 - state.dayFactor);
+    this.setVectorUniform('uAirglowRadiance', airglow * 0.62, airglow * 0.78, airglow * 1.0);
   }
 
   private updateLights(state: EphemerisState, cloudiness: number): void {
@@ -454,12 +482,17 @@ export class Sky implements System {
 
     // Adaptation is deliberately slow, and slower going dark than going bright — which is how
     // eyes behave, and which stops a cloud crossing the sun from pumping the whole frame.
-    const brightening = total > this.adaptedIlluminance;
-    const rate = brightening ? 0.9 : 0.35;
-    this.adaptedIlluminance = Math.max(
-      1e-4,
-      damp(this.adaptedIlluminance, total, rate, Math.min(dt, 0.1)),
-    );
+    if (!this.adaptationPrimed) {
+      this.adaptedIlluminance = Math.max(1e-4, total);
+      this.adaptationPrimed = true;
+    } else {
+      const brightening = total > this.adaptedIlluminance;
+      const rate = brightening ? 0.9 : 0.35;
+      this.adaptedIlluminance = Math.max(
+        1e-4,
+        damp(this.adaptedIlluminance, total, rate, Math.min(dt, 0.1)),
+      );
+    }
 
     // Standard physically-based exposure: average scene luminance from illuminance and a
     // representative reflectance, then the Saturation-Based Sensitivity formulation.

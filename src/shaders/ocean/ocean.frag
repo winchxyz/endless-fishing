@@ -132,7 +132,17 @@ void main() {
   // Ripples need wind to exist; on a glassy calm the surface really is a mirror.
   float windFactor = smoothstep(0.4, 5.0, uWindSpeed);
 
-  vec3 geometricNormal = normalize(vNormal);
+  // Flatten the wave normal towards vertical with distance.
+  //
+  // At the horizon a single pixel covers many whole wavelengths, so the slope it should show is
+  // the *average* over all of them — which is flat — and shading it with whichever slope
+  // happened to land at the sample point produces a band of violent specular sparkle that no
+  // amount of antialiasing removes, because it is not an edge artefact, it is a signal the
+  // pixel cannot represent. The energy is not thrown away: it comes back through the roughness
+  // term below, which is the statistically correct place to put detail you cannot resolve.
+  float unresolvedSlope = smoothstep(260.0, 2600.0, viewDistance);
+  vec3 geometricNormal =
+      normalize(mix(normalize(vNormal), vec3(0.0, 1.0, 0.0), unresolvedSlope * 0.88));
   vec3 ripple = detailNormal(vUndisplaced, viewDistance, windFactor);
   // Blend the ripple into the wave normal in the wave's own tangent frame, so a ripple on the
   // face of a swell tilts with the swell instead of always pointing up.
@@ -170,7 +180,10 @@ void main() {
   // grows to represent the same detail statistically. This is what turns the specular
   // highlight into a glitter path that stretches to the horizon.
   float unresolved = smoothstep(30.0, 1400.0, viewDistance);
-  float roughness = mix(0.028, 0.10 + 0.16 * windFactor, unresolved);
+  // The ceiling rises with the slope flattening above, so the sun's glitter path keeps the
+  // energy the geometry gave up and simply spreads it, which is what a real glitter path is.
+  float roughness = mix(0.028, 0.11 + 0.20 * windFactor, unresolved);
+  roughness = mix(roughness, 0.34, unresolvedSlope);
   roughness = mix(roughness, 0.6, foamMask);
 
   // The probe cubemap's mip chain stands in for pre-filtered roughness.

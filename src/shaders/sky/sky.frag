@@ -79,6 +79,23 @@ uniform float uAltitudeKm;
 /** Global luminance scale so the sky sits in the same units as the light rig. */
 uniform float uSkyIntensity;
 
+/**
+ * Night-sky radiance floor, cd/m².
+ *
+ * The scattering LUTs are built for one light source, the sun, so with the sun down they
+ * return zero and the sky is mathematically black — which makes a full-moon night render as an
+ * empty frame, when in reality you can read a newspaper by it.
+ *
+ * This is the moonlight the atmosphere scatters, plus airglow. It is a single-scattering,
+ * altitude-independent approximation rather than a second pass through the full model: the
+ * moon is roughly 400 000 times fainter than the sun, so the *shape* of its scattering matters
+ * far less than its presence, and getting the magnitude right (a full moon gives about
+ * 0.001 cd/m² of sky, airglow about 0.0002) is what actually decides whether the horizon is
+ * visible. The Rayleigh phase term still puts the glow around the moon where it belongs.
+ */
+uniform vec3 uMoonSkyRadiance;
+uniform vec3 uAirglowRadiance;
+
 // -------------------------------------------------------------------------------------------
 
 vec3 sampleSkyView(vec3 direction) {
@@ -237,6 +254,15 @@ void main() {
   // sun is — and lerping towards it is what turns a clear-sky model into an overcast one.
   vec3 zenith = texture2D(uSkyViewLut, vec2(0.5, 1.0)).rgb;
   atmosphere = mix(atmosphere, zenith * 0.88, uCloudiness);
+
+  // Night floor. Both terms thin out towards the horizon the way the real ones do, because
+  // there is more air in the way and less of it above the observer.
+  float upness = smoothstep(-0.08, 0.35, direction.y);
+  float moonPhaseTerm = 4.0 * PI * rayleighPhase(dot(direction, uMoonDirection));
+  atmosphere +=
+      (uMoonSkyRadiance * mix(0.45, 1.0, upness) * (0.55 + 0.45 * moonPhaseTerm) +
+       uAirglowRadiance * mix(0.6, 1.0, upness)) /
+      uSkyIntensity;
 
   // Only the upper hemisphere gets panorama detail; below the horizon the analytic model and
   // the ocean shader own the frame, and an HDRI's baked ground would show through as a seam.

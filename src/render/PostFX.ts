@@ -114,7 +114,9 @@ export class PostFX implements System {
       radialModulation: true,
       modulationOffset: 0.42,
     });
-    this.chromaticAberration.offset.set(0.0006, 0.0006);
+    // Barely there, and radially modulated so the centre of the frame is untouched. A visible
+    // fringe on a horizon line is a lens defect the viewer reads as a rendering error.
+    this.chromaticAberration.offset.set(0.00028, 0.00028);
 
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
 
@@ -169,13 +171,22 @@ export class PostFX implements System {
 
     const graphics = engine.settings.graphics;
 
-    // Group one: exposure, bloom and everything that is a pure per-pixel function.
-    const primary: Effect[] = [this.exposureEffect];
-    if (graphics.bloomEnabled) primary.push(this.bloom);
-    primary.push(this.toneMapping);
-    if (graphics.vignetteEnabled) primary.push(this.vignette);
-    if (graphics.grainEnabled) primary.push(this.noise);
-    this.effectPasses.push(new EffectPass(engine.camera, ...primary));
+    // Exposure gets a pass to itself, and this is not optional.
+    //
+    // A convolution effect does not read the accumulated colour of the effects before it in
+    // the merged shader — it renders from the *pass input buffer*. So bloom placed after
+    // exposure in the same pass still sees raw physical radiance, where every pixel of the
+    // scene is thousands of times over a threshold meant to mean "brighter than diffuse
+    // white". The entire frame then blooms and screen-blends to white. Splitting the pass is
+    // what makes the threshold mean what it says.
+    this.effectPasses.push(new EffectPass(engine.camera, this.exposureEffect));
+
+    const graded: Effect[] = [];
+    if (graphics.bloomEnabled) graded.push(this.bloom);
+    graded.push(this.toneMapping);
+    if (graphics.vignetteEnabled) graded.push(this.vignette);
+    if (graphics.grainEnabled) graded.push(this.noise);
+    this.effectPasses.push(new EffectPass(engine.camera, ...graded));
 
     if (graphics.chromaticAberrationEnabled) {
       this.effectPasses.push(new EffectPass(engine.camera, this.chromaticAberration));
