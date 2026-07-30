@@ -1,0 +1,845 @@
+/*
+ * HUD, catch card, journal and settings.
+ *
+ * Continues the language established in styles.css rather than starting a second one: the same
+ * cold slate panels, the same off-white ink, the same single warm accent reserved for the one
+ * thing on screen the player has to act on. Nothing here is saturated and nothing here is
+ * opaque — the sea reads through every panel, because the sea is the product.
+ *
+ * Two additions to the vocabulary, both earned:
+ *   - a 10px uppercase label with wide tracking, so a readout can be identified without a box
+ *     around it and the panels can stay borderless-feeling;
+ *   - a hairline rule at --line, used instead of padding to separate rows, which keeps the
+ *     panels physically small over a photographic frame.
+ */
+
+:root {
+  /* Reserved for the fishing tension meter as it approaches the breaking strain. */
+  --strain: #b8734a;
+  --hud-gap: 10px;
+}
+
+/* ---------------------------------------------------------------- shared panel + type */
+
+.hud-panel {
+  background: var(--slate-800);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+}
+
+.hud-label {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.hud-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 17px;
+}
+
+.hud-row__value {
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hud-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.hud-figure__value {
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.hud-figure__unit {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+.hud-rule {
+  height: 1px;
+  background: var(--line);
+  margin: 8px 0 7px;
+}
+
+/* ------------------------------------------------------------------------- hud layout */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--hud-gap);
+  align-items: start;
+}
+
+/* Beats the `#ui-root > *` rule that turns pointer events back on for overlay children. */
+#ui-root > .hud {
+  pointer-events: none;
+}
+
+.hud__nav {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hud__sky {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  min-width: 218px;
+}
+
+.hud__weather {
+  grid-column: 1;
+  grid-row: 3;
+  align-self: end;
+  min-width: 190px;
+}
+
+.hud__tension {
+  grid-column: 2;
+  grid-row: 3;
+  align-self: end;
+  justify-self: center;
+  width: min(300px, 42vw);
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hud__tension.is-live {
+  opacity: 1;
+  transform: none;
+}
+
+.hud__storm {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 12px;
+  border-left: 2px solid var(--danger);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hud__storm.is-live {
+  opacity: 1;
+  transform: none;
+}
+
+.hud__storm-title {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------- compass */
+
+.compass {
+  width: 84px;
+  height: 84px;
+  flex: none;
+  overflow: visible;
+}
+
+.compass__ring {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.compass__tick {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+
+.compass__tick--major {
+  stroke: var(--ink-dim);
+  stroke-width: 1.4;
+}
+
+.compass__cardinal {
+  fill: var(--ink-dim);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.compass__lubber {
+  fill: var(--accent);
+}
+
+.hud__nav-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 74px;
+}
+
+/* --------------------------------------------------------------------- sky readouts */
+
+.hud__clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.hud__clock-time {
+  font-family: var(--font-num);
+  font-size: 26px;
+  font-weight: 200;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hud__bodies {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.hud__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hud__body-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  min-height: 26px;
+}
+
+.sun-glyph,
+.moon-glyph {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.sun-glyph__disc {
+  fill: var(--ink-dim);
+}
+
+.sun-glyph__ray {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+/* The dark disc is the un-lit half of the real moon, not decoration: it is what makes the
+   terminator legible at a crescent, so it is drawn at a luminance the sky can be seen through. */
+.moon-glyph__dark {
+  fill: rgba(232, 234, 236, 0.07);
+  stroke: var(--line);
+  stroke-width: 0.6;
+}
+
+.moon-glyph__lit {
+  fill: var(--ink);
+}
+
+.moon-glyph__north {
+  stroke: var(--ink-faint);
+  stroke-width: 0.8;
+  opacity: 0.55;
+}
+
+.hud__phase {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  text-transform: lowercase;
+}
+
+/* ------------------------------------------------------------------- weather readouts */
+
+.hud__baro {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud__trend {
+  width: 9px;
+  height: 13px;
+  align-self: center;
+  flex: none;
+}
+
+.hud__trend-mark {
+  stroke: var(--ink-dim);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.hud__trend.is-falling .hud__trend-mark {
+  stroke: var(--strain);
+}
+
+.hud__wind {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.wind-dial {
+  width: 54px;
+  height: 54px;
+  flex: none;
+}
+
+.wind-dial__ring {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* The hull outline is fixed and points up: this dial is read in the boat's frame, which is the
+   frame the helmsman is actually in. */
+.wind-dial__hull {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.wind-dial__arrow {
+  fill: var(--ink-dim);
+}
+
+.wind-dial.is-strong .wind-dial__arrow {
+  fill: var(--accent);
+}
+
+/* --------------------------------------------------------------------- tension meter */
+
+.tension__track {
+  position: relative;
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.tension__fill {
+  height: 100%;
+  width: 0%;
+  background: var(--ink-dim);
+  transform-origin: left center;
+  transition:
+    width 90ms linear,
+    background-color 260ms ease-out;
+}
+
+.hud__tension.is-strained .tension__fill {
+  background: var(--strain);
+}
+
+.hud__tension.is-parting .tension__fill {
+  background: var(--danger);
+}
+
+/* The breaking strain, marked once so the player learns where it is rather than being told. */
+.tension__limit {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 82%;
+  width: 1px;
+  background: var(--line-strong);
+}
+
+.tension__legend {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+/* -------------------------------------------------------------------------- catch card */
+
+.catch-card {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: min(320px, 74vw);
+  padding: 15px 16px 14px;
+  border-left: 2px solid var(--ink-faint);
+  opacity: 0;
+  /* Hidden rather than merely transparent: a faded-out card still covers a fifth of the frame,
+     and an invisible thing that eats clicks meant for the water is a bug you cannot see. */
+  visibility: hidden;
+  transform: translateY(14px) scale(0.985);
+  transition:
+    opacity 420ms cubic-bezier(0.2, 0, 0, 1),
+    transform 420ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 420ms;
+  cursor: pointer;
+}
+
+.catch-card.is-live {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.catch-card--rare {
+  border-left-color: var(--ink-dim);
+}
+
+.catch-card--epic {
+  border-left-color: rgba(217, 164, 65, 0.55);
+}
+
+.catch-card--legendary {
+  border-left-color: var(--accent);
+}
+
+.catch-card__name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.catch-card__latin {
+  margin: 1px 0 0;
+  font-size: 11.5px;
+  font-style: italic;
+  font-weight: 300;
+  color: var(--ink-faint);
+}
+
+.catch-card__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.catch-card__flag {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  padding: 2px 6px;
+}
+
+.catch-card__flag--best {
+  color: var(--accent);
+  border-color: rgba(217, 164, 65, 0.45);
+}
+
+.catch-card__earned {
+  font-family: var(--font-num);
+  font-size: 15px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.catch-card__hint {
+  margin-top: 9px;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* ----------------------------------------------------------------- overlays: shared shell */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  background: rgba(9, 12, 14, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 260ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 260ms;
+}
+
+.overlay.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.overlay__sheet {
+  background: var(--slate-900);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overlay__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.overlay__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 300;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.overlay__body {
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.overlay__close {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink-dim);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, color 160ms ease-out;
+}
+
+.overlay__close:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+/* ----------------------------------------------------------------------------- journal */
+
+.journal {
+  place-items: center;
+  padding: 4vh 3vw;
+}
+
+.journal__sheet {
+  width: min(940px, 96vw);
+  max-height: 92vh;
+}
+
+.journal__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(214px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.journal__entry {
+  background: var(--slate-900);
+  padding: 12px 13px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.journal__entry--uncaught .journal__name,
+.journal__entry--uncaught .journal__latin {
+  color: var(--ink-faint);
+}
+
+.journal__silhouette {
+  width: 100%;
+  height: 42px;
+  margin-bottom: 4px;
+}
+
+.journal__shape {
+  fill: var(--ink-dim);
+}
+
+.journal__entry--uncaught .journal__shape {
+  fill: rgba(232, 234, 236, 0.11);
+}
+
+.journal__name {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.journal__latin {
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--ink-faint);
+  margin-bottom: 5px;
+}
+
+.journal__summary {
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------- settings */
+
+.settings {
+  justify-items: end;
+  align-items: stretch;
+}
+
+.settings__sheet {
+  width: min(430px, 94vw);
+  height: 100%;
+  border-radius: 0;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  transform: translateX(18px);
+  transition: transform 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.settings.is-open .settings__sheet {
+  transform: none;
+}
+
+.settings__group {
+  margin-bottom: 22px;
+}
+
+.settings__group-title {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 9px;
+}
+
+.settings__field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.settings__field-value {
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+
+.settings__field input[type='range'] {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 14px;
+  appearance: none;
+  background: none;
+  cursor: pointer;
+}
+
+.settings__field input[type='range']::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.settings__field input[type='range']::-moz-range-track {
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.settings__field input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  margin-top: -4px;
+}
+
+.settings__field input[type='range']::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  border: none;
+  border-radius: 50%;
+  background: var(--ink-dim);
+}
+
+.settings__field input[type='checkbox'] {
+  appearance: none;
+  width: 26px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  position: relative;
+  cursor: pointer;
+  transition: border-color 160ms ease-out;
+}
+
+.settings__field input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition:
+    transform 180ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 180ms ease-out;
+}
+
+.settings__field input[type='checkbox']:checked {
+  border-color: rgba(217, 164, 65, 0.5);
+}
+
+.settings__field input[type='checkbox']:checked::after {
+  transform: translateX(12px);
+  background: var(--accent);
+}
+
+.settings__field select,
+.settings__field input[type='number'],
+.settings__field input[type='datetime-local'] {
+  background: var(--slate-700);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink);
+  font-family: var(--font-num);
+  font-size: 11px;
+  padding: 4px 6px;
+  min-width: 116px;
+}
+
+.settings__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.settings__choice {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink-dim);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+.settings__choice:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.settings__choice.is-active {
+  color: var(--accent);
+  border-color: rgba(217, 164, 65, 0.5);
+}
+
+.settings__note {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin: 6px 0 0;
+  max-width: 40ch;
+}
+
+@media (max-width: 720px) {
+  .hud__sky {
+    min-width: 0;
+  }
+
+  .hud__bodies {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .catch-card {
+    width: calc(100vw - 36px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud__tension,
+  .hud__storm,
+  .catch-card,
+  .overlay,
+  .settings__sheet,
+  .tension__fill {
+    transition-duration: 1ms;
+  }
+}
