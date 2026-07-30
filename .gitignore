@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+assets/
+screenshots/
+.vite/
+*.local
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+test-results/
+playwright-report/
+*.log

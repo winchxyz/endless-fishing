@@ -1,0 +1,397 @@
+{
+  "hdri/aristea_wreck_puresky_1k.hdr": {
+    "sha256": "a784f67dd3980c758da5478fcd6b63894de1e5a99ab0e0d144734106c892b16c",
+    "bytes": 1453254,
+    "source": "https://polyhaven.com/a/aristea_wreck_puresky"
+  },
+  "hdri/citrus_orchard_puresky_1k.hdr": {
+    "sha256": "2b8bdb3bd0857d4bf3514692bd300fac0ef8cadc8b54192a17fa8afea615f128",
+    "bytes": 1277750,
+    "source": "https://polyhaven.com/a/citrus_orchard_puresky"
+  },
+  "hdri/kloofendal_43d_clear_puresky_2k.hdr": {
+    "sha256": "462a3cc63bfcd9fe0299137a0f33f4ade84e237f4cb6115fe46f5ab400693fe6",
+    "bytes": 4624289,
+    "source": "https://polyhaven.com/a/kloofendal_43d_clear_puresky"
+  },
+  "hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr": {
+    "sha256": "5244534e9cf5b606f2ff513aa00ddb161b0a4826ffd88a0d3bd03ac29247d198",
+    "bytes": 5451493,
+    "source": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky"
+  },
+  "hdri/kloofendal_misty_morning_puresky_2k.hdr": {
+    "sha256": "a59683cd08861fb18d69ee8f3938f50ec81c6feda5381e8b8576f340d5a25bb1",
+    "bytes": 2958072,
+    "source": "https://polyhaven.com/a/kloofendal_misty_morning_puresky"
+  },
+  "hdri/kloofendal_overcast_puresky_2k.hdr": {
+    "sha256": "312b1b04b7f10057a4f1418abc59d1166c8933cc93fc72051502edaf8d6b2fcd",
+    "bytes": 4335717,
+    "source": "https://polyhaven.com/a/kloofendal_overcast_puresky"
+  },
+  "hdri/kloppenheim_01_puresky_1k.hdr": {
+    "sha256": "2d9eb00b9b359402366baad8e150e80717cee55367c93386c0f8dd3b0d4c8448",
+    "bytes": 861984,
+    "source": "https://polyhaven.com/a/kloppenheim_01_puresky"
+  },
+  "hdri/qwantani_dawn_puresky_2k.hdr": {
+    "sha256": "4058e43a7c38d74ff2c85a440ac7171cf807c92c90a1dd248b83753ebe383726",
+    "bytes": 4257506,
+    "source": "https://polyhaven.com/a/qwantani_dawn_puresky"
+  },
+  "hdri/qwantani_dusk_2_puresky_1k.hdr": {
+    "sha256": "56dc9cb681f2641c08377e20e83fa5e4865fd900bcce26a15a1883580139b5e2",
+    "bytes": 1166018,
+    "source": "https://polyhaven.com/a/qwantani_dusk_2_puresky"
+  },
+  "hdri/qwantani_late_afternoon_puresky_1k.hdr": {
+    "sha256": "9ac3609a3b1381c1c5f0775abf65835ac4215739b5860c60883cf0b215132dfd",
+    "bytes": 1115880,
+    "source": "https://polyhaven.com/a/qwantani_late_afternoon_puresky"
+  },
+  "hdri/qwantani_moonrise_puresky_1k.hdr": {
+    "sha256": "6505b4c9869ed519772d90cc88e1fe9aa8e0fdfa86c7d7826c55f94a253fce6d",
+    "bytes": 1272812,
+    "source": "https://polyhaven.com/a/qwantani_moonrise_puresky"
+  },
+  "hdri/qwantani_morning_puresky_1k.hdr": {
+    "sha256": "13bb5d5bfbccf8fbda8b67c5e2fc878391a316ab357ed00ae3254d76bc916e2c",
+    "bytes": 1118343,
+    "source": "https://polyhaven.com/a/qwantani_morning_puresky"
+  },
+  "hdri/qwantani_night_puresky_2k.hdr": {
+    "sha256": "d458fe7f20969d89eedbb7ae12d346abf68c86d844235696e7d70baad3e04cf0",
+    "bytes": 5461210,
+    "source": "https://polyhaven.com/a/qwantani_night_puresky"
+  },
+  "hdri/qwantani_noon_puresky_2k.hdr": {
+    "sha256": "d070d48c8e802c92027b0f7b1965b5bd820b0d25afca225503abfec67e00ad07",
+    "bytes": 4184949,
+    "source": "https://polyhaven.com/a/qwantani_noon_puresky"
+  },
+  "hdri/qwantani_sunrise_puresky_1k.hdr": {
+    "sha256": "af34ac1f1e859b44956eda8f6eedc2b8fc0b71a2beac74a5a365fab03f20f574",
+    "bytes": 1033946,
+    "source": "https://polyhaven.com/a/qwantani_sunrise_puresky"
+  },
+  "hdri/snow_field_puresky_2k.hdr": {
+    "sha256": "7c87cf63b70efba193d6b3d64a79076a1d6f329011bb8553bf36812438dd56d8",
+    "bytes": 4159737,
+    "source": "https://polyhaven.com/a/snow_field_puresky"
+  },
+  "hdri/syferfontein_0d_clear_puresky_2k.hdr": {
+    "sha256": "4a76e109e781f0f061a3341ae93128b8cb8adf4521b63d551477b4b4b419ea9f",
+    "bytes": 4352080,
+    "source": "https://polyhaven.com/a/syferfontein_0d_clear_puresky"
+  },
+  "hdri/syferfontein_6d_clear_puresky_1k.hdr": {
+    "sha256": "12c2a21b67d842a95b8e7dbb98825c187c19ea3d62babc8070327e72af619592",
+    "bytes": 1129809,
+    "source": "https://polyhaven.com/a/syferfontein_6d_clear_puresky"
+  },
+  "hdri/table_mountain_2_puresky_2k.hdr": {
+    "sha256": "89fce36604be3dca3d2cb6ea4f9cc47d8fee17ee7efbb7a76306d2e2bd6e33fa",
+    "bytes": 5162594,
+    "source": "https://polyhaven.com/a/table_mountain_2_puresky"
+  },
+  "moon/ldem_4_uint.tif": {
+    "sha256": "e6668bec27fc9b8fbb02d198c7ddfb08eedeeb790167b494f95e6b34201da05e",
+    "bytes": 2076866,
+    "source": "https://svs.gsfc.nasa.gov/4720"
+  },
+  "moon/lroc_color_poles_2k.tif": {
+    "sha256": "13b797422e8c4b8607ff2b2623ac3a046a6da0132d567c2d272d92fad7052c4a",
+    "bytes": 3339438,
+    "source": "https://svs.gsfc.nasa.gov/4720"
+  },
+  "stars/bsc5.dat": {
+    "sha256": "69797549cc1605aad7ff94e9325e29a1661f2a253917faaa056d9bf20b809afd",
+    "bytes": 1704879,
+    "source": "http://tdc-www.harvard.edu/catalogs/bsc5.html"
+  },
+  "textures/Bark014/Bark014_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "92ece37c217aa0609a02327a860520bfd3145cabe82bef1cf9fad601d3b86f15",
+    "bytes": 753753,
+    "source": "https://ambientcg.com/view?id=Bark014"
+  },
+  "textures/Bark014/Bark014_1K-JPG_Color.jpg": {
+    "sha256": "da297aff93460d294a6a7b2976fbf1029de27127a66ba56a3cf0ef21ac77c493",
+    "bytes": 1673314,
+    "source": "https://ambientcg.com/view?id=Bark014"
+  },
+  "textures/Bark014/Bark014_1K-JPG_Displacement.jpg": {
+    "sha256": "0157cc50fd51efd0ce1d91a61c9e3da4f2ead0df026b04eefde7e79785968a69",
+    "bytes": 394989,
+    "source": "https://ambientcg.com/view?id=Bark014"
+  },
+  "textures/Bark014/Bark014_1K-JPG_NormalGL.jpg": {
+    "sha256": "04c449835e79c8829190ea07af41efec46655e347da4048c49b3b0f0d8538a2e",
+    "bytes": 1739655,
+    "source": "https://ambientcg.com/view?id=Bark014"
+  },
+  "textures/Bark014/Bark014_1K-JPG_Roughness.jpg": {
+    "sha256": "a7e174d0e65de45a397fecf23d0a62a228bf3589fcf79eb0428b231db5e26a05",
+    "bytes": 802004,
+    "source": "https://ambientcg.com/view?id=Bark014"
+  },
+  "textures/Fabric030/Fabric030_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "c0f6be3cc6141868a44204dac5dc4a4f890ea585c0938bf9c06b7bf7ef99f802",
+    "bytes": 835879,
+    "source": "https://ambientcg.com/view?id=Fabric030"
+  },
+  "textures/Fabric030/Fabric030_1K-JPG_Color.jpg": {
+    "sha256": "6388762708722de48cdbdfb4878b9ae6d8012de5948d564006067b629f0b84ef",
+    "bytes": 1681447,
+    "source": "https://ambientcg.com/view?id=Fabric030"
+  },
+  "textures/Fabric030/Fabric030_1K-JPG_Displacement.jpg": {
+    "sha256": "6d1ac26fe23f4f4a54ebb29c03051e8597d1f1159582ada708715575c74316c3",
+    "bytes": 831560,
+    "source": "https://ambientcg.com/view?id=Fabric030"
+  },
+  "textures/Fabric030/Fabric030_1K-JPG_NormalGL.jpg": {
+    "sha256": "c9a8f4ff15527af0b226b8a8840405f944c45a32c2e4462864d3b0136827e6e2",
+    "bytes": 2682952,
+    "source": "https://ambientcg.com/view?id=Fabric030"
+  },
+  "textures/Fabric030/Fabric030_1K-JPG_Roughness.jpg": {
+    "sha256": "221bf708cb614b01ae83b856376fa79fff22dc249d8a397ab0f89dd3b7fe6da6",
+    "bytes": 866950,
+    "source": "https://ambientcg.com/view?id=Fabric030"
+  },
+  "textures/Ground054/Ground054_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "14f32218d8ebbdee2b4e6ca627c4d95be7de8f42e6b3b774c42339673d91a534",
+    "bytes": 525627,
+    "source": "https://ambientcg.com/view?id=Ground054"
+  },
+  "textures/Ground054/Ground054_1K-JPG_Color.jpg": {
+    "sha256": "77c0b5ac13eead1420887c608b2c28209a1ae5ba70761bf29953aa23cf3dc31b",
+    "bytes": 1551439,
+    "source": "https://ambientcg.com/view?id=Ground054"
+  },
+  "textures/Ground054/Ground054_1K-JPG_Displacement.jpg": {
+    "sha256": "96bc02c12e95e8e77b043e0df46ebc2190264b83eaf759ac80f1d23d932daf31",
+    "bytes": 371559,
+    "source": "https://ambientcg.com/view?id=Ground054"
+  },
+  "textures/Ground054/Ground054_1K-JPG_NormalGL.jpg": {
+    "sha256": "473474b0e0570cfa757e35c13f073e7ee49389fb3e35dad4d5f06e5ce9a59234",
+    "bytes": 2010904,
+    "source": "https://ambientcg.com/view?id=Ground054"
+  },
+  "textures/Ground054/Ground054_1K-JPG_Roughness.jpg": {
+    "sha256": "e19b6c7d4ee3d8a6b6ea4ecc525a1a4e32681be969af134a2ee5c6071b9dcec9",
+    "bytes": 666018,
+    "source": "https://ambientcg.com/view?id=Ground054"
+  },
+  "textures/Metal032/Metal032_1K-JPG_Color.jpg": {
+    "sha256": "49493d6ade78ccbbbd270c6a15e4b4c9b1a097e66ddf28a1073de3e85712d9af",
+    "bytes": 701900,
+    "source": "https://ambientcg.com/view?id=Metal032"
+  },
+  "textures/Metal032/Metal032_1K-JPG_Displacement.jpg": {
+    "sha256": "b8ce7b052ca7ae31d5adb7fbd51c6d1b19d69c0ba3ae622be5c2886a172eb821",
+    "bytes": 526006,
+    "source": "https://ambientcg.com/view?id=Metal032"
+  },
+  "textures/Metal032/Metal032_1K-JPG_Metalness.jpg": {
+    "sha256": "843102638fa0a5bf897888868877efab8ccdc4cb84a48e57bdb52bfb30f5e714",
+    "bytes": 4257,
+    "source": "https://ambientcg.com/view?id=Metal032"
+  },
+  "textures/Metal032/Metal032_1K-JPG_NormalGL.jpg": {
+    "sha256": "8537c1015de5cc33d20231e5b6aa27309edcb983e1c37e608d08bb00f733747d",
+    "bytes": 341948,
+    "source": "https://ambientcg.com/view?id=Metal032"
+  },
+  "textures/Metal032/Metal032_1K-JPG_Roughness.jpg": {
+    "sha256": "55d3eee2b69008ad3701b18977495531d0e3515105102e56f40a4d1098d10bce",
+    "bytes": 404875,
+    "source": "https://ambientcg.com/view?id=Metal032"
+  },
+  "textures/Metal063/Metal063_1K-JPG_Color.jpg": {
+    "sha256": "d4122954971c26b529614f39fb12310de00005d44ce103430c35132f61fca077",
+    "bytes": 1259638,
+    "source": "https://ambientcg.com/view?id=Metal063"
+  },
+  "textures/Metal063/Metal063_1K-JPG_Displacement.jpg": {
+    "sha256": "81e1cb4c96d23890c7626d44b705656c54c095a44fd1c8d72242d5d2265ac817",
+    "bytes": 770082,
+    "source": "https://ambientcg.com/view?id=Metal063"
+  },
+  "textures/Metal063/Metal063_1K-JPG_Metalness.jpg": {
+    "sha256": "1bd888a9fa307197fd5eaaa883561cfd8350ae634fce0d378e83b8e05632daf8",
+    "bytes": 737142,
+    "source": "https://ambientcg.com/view?id=Metal063"
+  },
+  "textures/Metal063/Metal063_1K-JPG_NormalGL.jpg": {
+    "sha256": "51e521e2fafd01387216b52fce315e2f094a1fa6efab77a92e2c79870bb2df01",
+    "bytes": 343987,
+    "source": "https://ambientcg.com/view?id=Metal063"
+  },
+  "textures/Metal063/Metal063_1K-JPG_Roughness.jpg": {
+    "sha256": "e83993283739d0a5d350ecd15cf82969aa59ec6e2293bcc6a14aea8a92ba283d",
+    "bytes": 731180,
+    "source": "https://ambientcg.com/view?id=Metal063"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "3045de18946eaacbe2c39baa04d573c53148c24e0e23e900fdeb6d9bd2692052",
+    "bytes": 822114,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_Color.jpg": {
+    "sha256": "e9d43d47042bdd345d2be639d710459ce15cd75df6f1c0ea08f83f4642ca1551",
+    "bytes": 1684660,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_Displacement.jpg": {
+    "sha256": "6e5bce728483b078a401c030b0c4a1c452f099944a31b1211dacb32642be7d87",
+    "bytes": 595805,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_Metalness.jpg": {
+    "sha256": "3850b3e9871a5e94a8c9f7948bfdcbe34232b9809ed605a89eedbbd46ea6353e",
+    "bytes": 444402,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_NormalGL.jpg": {
+    "sha256": "77e6ba049603cb8ff76729fe673f93a51f65a31670d20273a0e2fd89414a7e21",
+    "bytes": 1993685,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/PaintedMetal006/PaintedMetal006_1K-JPG_Roughness.jpg": {
+    "sha256": "e675cee3f01e427f5a122f49414eb5e3e151e6c7a6549b4b9c4b50c0bbcf555c",
+    "bytes": 707063,
+    "source": "https://ambientcg.com/view?id=PaintedMetal006"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "58a8d0f59e9de1e1d109e93d6761e84015b11934246c69b11ad342c54af0969b",
+    "bytes": 539237,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_Color.jpg": {
+    "sha256": "df154cf5a2db02fc77bd6086ee81e757ccabd43f16a0f5feff653cffb0538642",
+    "bytes": 910213,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_Displacement.jpg": {
+    "sha256": "aacbed0b0140281e085d796f543f7aa67e57c36564b642a79d713e93c6383fb4",
+    "bytes": 421771,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_Metalness.jpg": {
+    "sha256": "b8a9293687f04aad790785362cbb9a7f610273578982ce763923caf0370602b1",
+    "bytes": 13468,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_NormalGL.jpg": {
+    "sha256": "a0280bca19e8162fcae09b5b149908a9ed495a5db084597bf9c18fcab21e36e2",
+    "bytes": 1558095,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Planks023A/Planks023A_1K-JPG_Roughness.jpg": {
+    "sha256": "d8e07a185841eca6818ea13b6d5df85fd4d157ca28dd22f490aea9542321b48f",
+    "bytes": 331601,
+    "source": "https://ambientcg.com/view?id=Planks023A"
+  },
+  "textures/Rock064/Rock064_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "0d3b52890dfa6a6c236e51db610fdadfed1468bbe48ba4d34114c057e8f1081a",
+    "bytes": 569344,
+    "source": "https://ambientcg.com/view?id=Rock064"
+  },
+  "textures/Rock064/Rock064_1K-JPG_Color.jpg": {
+    "sha256": "36004663a3ca91346591b51bb0e4f5803badec92560d64bcd030b2322333b813",
+    "bytes": 1674986,
+    "source": "https://ambientcg.com/view?id=Rock064"
+  },
+  "textures/Rock064/Rock064_1K-JPG_Displacement.jpg": {
+    "sha256": "753c9893077ded2f778369c51b30e348dc6ea16de609e1b629d5056e3b8b9b2a",
+    "bytes": 277388,
+    "source": "https://ambientcg.com/view?id=Rock064"
+  },
+  "textures/Rock064/Rock064_1K-JPG_NormalGL.jpg": {
+    "sha256": "b732423f45bc323337d6569c3da99f6eae9da44efdda12db448ad6ca151ddd2c",
+    "bytes": 1710852,
+    "source": "https://ambientcg.com/view?id=Rock064"
+  },
+  "textures/Rock064/Rock064_1K-JPG_Roughness.jpg": {
+    "sha256": "6b9b3263b8e3f22ea53dc0728b6741c4924ee9e07ecc0c8909481644202851db",
+    "bytes": 700019,
+    "source": "https://ambientcg.com/view?id=Rock064"
+  },
+  "textures/Rope001/Rope001_1K-JPG_Color.jpg": {
+    "sha256": "ce37f5da3b4762a2264d2d9a7f133f7caf8809f42f1216da506301e84f212e97",
+    "bytes": 527156,
+    "source": "https://ambientcg.com/view?id=Rope001"
+  },
+  "textures/Rope001/Rope001_1K-JPG_Displacement.jpg": {
+    "sha256": "898609a67dd5ace9951885b38cc76ad458b6eac7ff6689ee020623af2feaf9fd",
+    "bytes": 199324,
+    "source": "https://ambientcg.com/view?id=Rope001"
+  },
+  "textures/Rope001/Rope001_1K-JPG_Metalness.jpg": {
+    "sha256": "2ecca5789f5263c440bacc93c04a8175ff3ec093d58c77e6593456b31e2dbcc7",
+    "bytes": 2209,
+    "source": "https://ambientcg.com/view?id=Rope001"
+  },
+  "textures/Rope001/Rope001_1K-JPG_NormalGL.jpg": {
+    "sha256": "bf1e55638aa756bd2512b0f6ab9de2fb5ceb9fc5db159607cf6b872cca9bb7fc",
+    "bytes": 860675,
+    "source": "https://ambientcg.com/view?id=Rope001"
+  },
+  "textures/Rope001/Rope001_1K-JPG_Roughness.jpg": {
+    "sha256": "b7092a728f1ef9165d52afea65a6c96d9ce927ff1150073afd86263c43f92054",
+    "bytes": 248515,
+    "source": "https://ambientcg.com/view?id=Rope001"
+  },
+  "textures/Wood066/Wood066_1K-JPG_Color.jpg": {
+    "sha256": "e8b483629421fb725668ef2128e21fa68753fbd40bc25a9c4e871018c014a73d",
+    "bytes": 1741706,
+    "source": "https://ambientcg.com/view?id=Wood066"
+  },
+  "textures/Wood066/Wood066_1K-JPG_Displacement.jpg": {
+    "sha256": "078480272c3c0585ea7e340e433a34ca347ad296e8a87a68e0ff9f1eeda49864",
+    "bytes": 614864,
+    "source": "https://ambientcg.com/view?id=Wood066"
+  },
+  "textures/Wood066/Wood066_1K-JPG_NormalGL.jpg": {
+    "sha256": "74020c59d268591b8b1afa5f3767fafd73ff7c30c3b2f7a1ddd844f5631d9d94",
+    "bytes": 892864,
+    "source": "https://ambientcg.com/view?id=Wood066"
+  },
+  "textures/Wood066/Wood066_1K-JPG_Roughness.jpg": {
+    "sha256": "e067f2084e8288290585778bca5f4d58b535e197aa9e7a554bc48ffd3c243a31",
+    "bytes": 407657,
+    "source": "https://ambientcg.com/view?id=Wood066"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_AmbientOcclusion.jpg": {
+    "sha256": "ae88f7df618aa08872de401edeeaa347ad8de55a10794e783a862397420bd260",
+    "bytes": 121220,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_Color.jpg": {
+    "sha256": "307c33f1fc5e05f47bfc513a1cca2b6f4f2b179d74d873dd874a24938889cd98",
+    "bytes": 649557,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_Displacement.jpg": {
+    "sha256": "d52b061899bab1b6dc2dbd3e6c2c12ec319e882742041b0a637df3284d85a294",
+    "bytes": 176498,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_Metalness.jpg": {
+    "sha256": "8064646ac6b695b6f9cefc85c9cd453634680c21f8f5dd03e8726c59864d918a",
+    "bytes": 3639,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_NormalGL.jpg": {
+    "sha256": "080491d11ebb4d2c7287c597322d438cc65050d4636a0eb59d4c85dac61418db",
+    "bytes": 408639,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  },
+  "textures/WoodFloor043/WoodFloor043_1K-JPG_Roughness.jpg": {
+    "sha256": "01563f4f0d0a095b92abf101be6ed231d7520980185fae429f73e99b94f82be3",
+    "bytes": 216824,
+    "source": "https://ambientcg.com/view?id=WoodFloor043"
+  }
+}

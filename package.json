@@ -1,0 +1,40 @@
+{
+  "name": "endless-fishing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Endless ocean fishing, with a physically correct sky driven by your actual clock and location.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "assets": "tsx scripts/fetch-assets.ts",
+    "textures": "tsx scripts/process-textures.ts",
+    "verify": "tsx scripts/verify.ts"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "postprocessing": "^6.39.4",
+    "stats.js": "^0.17.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^24.10.1",
+    "@types/stats.js": "^0.17.4",
+    "@types/three": "^0.185.1",
+    "sharp": "^0.35.3",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.0",
+    "vite-plugin-glsl": "^1.6.1",
+    "vitest": "^4.1.10"
+  }
+}
