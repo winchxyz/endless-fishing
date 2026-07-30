@@ -3,6 +3,7 @@ import {
   BufferGeometry,
   ClampToEdgeWrapping,
   Color,
+  type Material,
   Matrix4,
   Mesh,
   ShaderMaterial,
@@ -225,6 +226,19 @@ export class Sky implements System {
   get skyIntensity(): number {
     const uniform = this.material.uniforms['uSkyIntensity'];
     return typeof uniform?.value === 'number' ? uniform.value : SOLAR_CONSTANT_LUX;
+  }
+
+  /**
+   * Enrol a material in the cascaded shadow map.
+   *
+   * CSM puts one full-intensity `DirectionalLight` in the scene per cascade, and relies on
+   * each material being patched to select the right one. A material that never registers is
+   * lit by all of them at once — three or four times too bright on the High and Ultra presets,
+   * which reads as a blown-out object rather than as a missing shadow, so it is easy to
+   * misdiagnose. Every PBR material in the scene must come through here.
+   */
+  registerShadowMaterial(material: Material): void {
+    this.csm.setupMaterial(material);
   }
 
   /** The weather family the sky library should draw from. Set by the weather system. */

@@ -108,6 +108,11 @@ async function main(): Promise<void> {
     };
   });
 
+  // A frame to actually look at. `preserveDrawingBuffer` is off, so reading the canvas back
+  // through a 2D context yields nothing — Playwright's compositor capture is the only way to
+  // see what was drawn.
+  await page.screenshot({ path: 'screenshots/probe.png', type: 'png' });
+
   await browser.close();
   if (server.pid !== undefined) {
     spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { stdio: 'ignore' });

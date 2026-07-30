@@ -5,7 +5,11 @@ import { installDebugApi } from './core/DebugApi.js';
 import { LoadingScreen, showFatalError } from './ui/LoadingScreen.js';
 import { Sky } from './world/Sky.js';
 import { Ocean } from './world/Ocean.js';
+import { Tides } from './world/Tides.js';
 import { PostFX } from './render/PostFX.js';
+import { MaterialLibrary } from './render/Materials.js';
+import { Boat } from './entities/Boat.js';
+import { BoatCamera } from './entities/BoatCamera.js';
 import { locationFromTimezone, requestLocation } from './world/Geolocation.js';
 
 /**
@@ -51,14 +55,33 @@ async function boot(): Promise<void> {
   engine.add(sky);
   sky.onSettingsChanged(engine);
 
-  engine.add(new Ocean(engine));
+  const ocean = new Ocean(engine);
+  engine.add(ocean);
 
-  // A default sea until the weather system takes over in phase 9: force 4, a fresh breeze on
-  // a long fetch. Enough chop to see the wave model working, calm enough to fish in.
+  // A default sea until the weather system takes over: force 4, a fresh breeze on a long
+  // fetch. Enough chop to see the wave model working, calm enough to fish in.
   engine.world.windSpeed = 7.2;
   engine.world.windX = 0.82;
   engine.world.windZ = -0.57;
   engine.world.cloudiness = 0.35;
+
+  engine.add(new Tides());
+
+  loading.set(0.55, 'Building the boat');
+  const materials = new MaterialLibrary(engine.resources);
+  const boat = await Boat.create(engine, ocean, materials);
+  engine.add(boat);
+
+  // Every PBR material has to enrol with the cascaded shadow map. CSM adds one directional
+  // light per cascade and patches materials to pick the right one; an unregistered material is
+  // lit by all of them and comes out three or four times too bright.
+  for (const material of boat.materials) sky.registerShadowMaterial(material);
+
+  // The camera's own priority orders it after the ocean, so the clipmap and the star sphere
+  // centre on the previous frame's viewpoint. At a 0.55 m base cell that is a few centimetres
+  // of lag on a mesh that is already snapped to a lattice, so it is not visible — but it is
+  // the reason the ocean is not simply re-centred here.
+  engine.add(new BoatCamera(engine, boat, ocean));
 
   // Registered last so it sees the finished scene; it takes over rendering from the engine.
   engine.add(new PostFX(engine));
