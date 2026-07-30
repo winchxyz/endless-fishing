@@ -130,6 +130,14 @@ void main() {
   vec3 f0 = mix(vec3(0.035), vec3(0.02), rockMask);
   f0 = mix(f0, vec3(0.05), wetness);
 
+  // Below the lowest water in the forecast the ground has never been uncovered, so it is not
+  // beach at all — it is sublittoral: weed, dark sediment, and nothing bleached by the sun. The
+  // transition sits exactly on the lowest astronomical tide the tide model predicts, which is
+  // why the band moves with the spring-neap cycle rather than sitting at a painted depth.
+  float sublittoral = 1.0 - smoothstep(uLowWaterMark - 0.9, uLowWaterMark + 0.2, vWorldPosition.y);
+  albedo = mix(albedo, albedo * vec3(0.44, 0.62, 0.48), sublittoral * 0.85);
+  roughness = mix(roughness, 0.55, sublittoral * 0.6);
+
   vec3 colour = ef_shadeSurface(albedo, N, V, clamp(roughness, 0.05, 1.0), occlusion, f0);
 
   // ------------------------------------------------------------------------- swash line
@@ -139,7 +147,7 @@ void main() {
   // reaches pure white is the fastest way to lose a photographic frame.
   float swashBand = 1.0 - smoothstep(0.0, 0.22, abs(aboveWater - 0.06));
   float breathe = 0.5 + 0.5 * sin(uTime * 0.7 + vWorldPosition.x * 0.05 + vWorldPosition.z * 0.037);
-  float swash = swashBand * (0.35 + 0.65 * breathe) * (1.0 - rockMask * 0.7);
+  float swash = swashBand * (0.35 + 0.65 * breathe) * (1.0 - rockMask * 0.7) * (1.0 - sublittoral);
   vec3 skyAbove = textureCubeLodEXT(uEnvironment, vec3(0.0, 1.0, 0.0), 5.0).rgb * uEnvironmentIntensity;
   vec3 foamColour = (skyAbove * 0.5 + uSunColour * uSunIlluminance * 0.18) * vec3(0.94, 0.96, 0.97);
   colour = mix(colour, foamColour, clamp(swash, 0.0, 0.75));
