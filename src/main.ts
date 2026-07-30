@@ -12,6 +12,12 @@ import { PostFX } from './render/PostFX.js';
 import { MaterialLibrary } from './render/Materials.js';
 import { Boat } from './entities/Boat.js';
 import { BoatCamera } from './entities/BoatCamera.js';
+import { Seabed } from './world/Seabed.js';
+import { Underwater } from './world/Underwater.js';
+import { Islands } from './world/Islands.js';
+import { Props } from './world/Props.js';
+import { Fish } from './entities/Fish.js';
+import { Birds } from './entities/Birds.js';
 import { locationFromTimezone, requestLocation } from './world/Geolocation.js';
 
 /**
@@ -69,10 +75,40 @@ async function boot(): Promise<void> {
 
   engine.add(new Tides());
 
-  loading.set(0.55, 'Building the boat');
+  // The seabed goes in before the fish, which hold station relative to the ground, and before
+  // the underwater pass, which needs something to fog.
+  const seabed = new Seabed(engine, ocean);
+  engine.add(seabed);
+
+  const underwater = new Underwater(engine, ocean);
+  engine.add(underwater);
+  seabed.setOptics(underwater);
+
+  loading.set(0.45, 'Raising land');
   const materials = new MaterialLibrary(engine.resources);
+  const islands = await Islands.create(engine, materials);
+  engine.add(islands);
+
+  // Props share the island's heightfield rather than sampling their own: a lighthouse computing
+  // its own ground height from the same noise would still land a few millimetres off, and a
+  // lighthouse hovering over its rock is the sort of thing you only ever notice once.
+  const props = await Props.create(engine, materials, islands.field);
+  props.setSwell(ocean);
+  engine.add(props);
+
+  loading.set(0.55, 'Building the boat');
   const boat = await Boat.create(engine, ocean, materials);
   engine.add(boat);
+
+  const fish = new Fish(engine, ocean, seabed, boat);
+  fish.setOptics(underwater);
+  engine.add(fish);
+
+  // Gulls circle whatever the fish are doing; with no locator they fall back to the boat, which
+  // is a worse tell but never a wrong one.
+  const birds = new Birds(engine);
+  birds.setSea(ocean);
+  engine.add(birds);
 
   // Every PBR material has to enrol with the cascaded shadow map. CSM adds one directional
   // light per cascade and patches materials to pick the right one; an unregistered material is
