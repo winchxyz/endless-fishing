@@ -229,6 +229,18 @@ export interface LunarPosition {
   waxing: boolean;
   /** Sub-solar direction on the lunar surface, for shading the albedo texture. */
   sunDirection: { x: number; y: number; z: number };
+  /** Optical libration in selenographic longitude, radians. Range about ±0.13 (±7.6°). */
+  librationLongitude: number;
+  /** Optical libration in selenographic latitude, radians. Range about ±0.12 (±6.7°). */
+  librationLatitude: number;
+  /**
+   * Position angle of the Moon's rotation axis, radians, measured eastward from the north
+   * celestial pole. Combined with the parallactic angle this gives the on-screen tilt of
+   * lunar north.
+   */
+  axisPositionAngle: number;
+  /** On-screen tilt of lunar north: 0 means the pole points straight up, clockwise positive. */
+  northScreenAngle: number;
 }
 
 /** Mean synodic month, days. */
@@ -363,6 +375,16 @@ export function lunarPosition(
   const ageDays = (normalizeDegrees(D) / 360) * SYNODIC_MONTH_DAYS;
   const waxing = normalizeDegrees(D) < 180;
 
+  const libration = opticalLibration(
+    T,
+    longitude,
+    latitude,
+    deltaPsi,
+    trueObliquity,
+    F,
+    equatorial.rightAscension,
+  );
+
   return {
     equatorial,
     topocentric,
@@ -380,6 +402,81 @@ export function lunarPosition(
     phaseName: classifyPhase(illuminatedFraction, waxing),
     waxing,
     sunDirection: subSolarDirection(phaseAngle, brightLimbAngle, parallacticAngle),
+    librationLongitude: libration.longitude,
+    librationLatitude: libration.latitude,
+    axisPositionAngle: libration.axisPositionAngle,
+    northScreenAngle: normalizeRadians(libration.axisPositionAngle - parallacticAngle),
+  };
+}
+
+/**
+ * Optical libration (Meeus ch. 53).
+ *
+ * The Moon keeps one face towards us, but not a *fixed* one. Its orbit is eccentric while its
+ * rotation is uniform, so it appears to nod east and west by about 7.6°; its equator is tilted
+ * to its orbit, so it nods north and south by about 6.7°. Over a month you actually see 59% of
+ * the surface, and features near the limb visibly swing in and out of view.
+ *
+ * Only the optical terms are computed. Physical libration is a further 0.02°, which at a disc
+ * half a degree across is a fraction of a pixel and is not worth eighteen more coefficients.
+ */
+function opticalLibration(
+  T: number,
+  apparentLongitude: number,
+  latitude: number,
+  deltaPsi: number,
+  trueObliquity: number,
+  argumentOfLatitudeDeg: number,
+  rightAscension: number,
+): { longitude: number; latitude: number; axisPositionAngle: number } {
+  // Inclination of the mean lunar equator to the ecliptic.
+  const I = 1.54242 * DEG_TO_RAD;
+
+  // Longitude of the ascending node of the mean lunar orbit.
+  const omegaDeg = normalizeDegrees(
+    125.0445479 -
+      1934.1362891 * T +
+      0.0020754 * T * T +
+      (T * T * T) / 467441 -
+      (T * T * T * T) / 60616000,
+  );
+  const omega = omegaDeg * DEG_TO_RAD;
+  const F = argumentOfLatitudeDeg * DEG_TO_RAD;
+
+  // W uses the *true* longitude, so the nutation folded into the apparent value comes back out.
+  const W = apparentLongitude - deltaPsi - omega;
+  const cosBeta = Math.cos(latitude);
+  const sinBeta = Math.sin(latitude);
+
+  const A = Math.atan2(
+    Math.sin(W) * cosBeta * Math.cos(I) - sinBeta * Math.sin(I),
+    Math.cos(W) * cosBeta,
+  );
+  const librationLongitude = normalizeRadians(A - F + Math.PI) - Math.PI;
+  const librationLatitude = Math.asin(
+    Math.min(1, Math.max(-1, -Math.sin(W) * cosBeta * Math.sin(I) - sinBeta * Math.cos(I))),
+  );
+
+  // Position angle of the axis (Meeus 53.5), optical terms only.
+  const V = omega + deltaPsi;
+  const x = Math.sin(I) * Math.sin(V);
+  const y = Math.sin(I) * Math.cos(V) * Math.cos(trueObliquity) - Math.cos(I) * Math.sin(trueObliquity);
+  const omegaAngle = Math.atan2(x, y);
+  const axisPositionAngle = Math.asin(
+    Math.min(
+      1,
+      Math.max(
+        -1,
+        (Math.hypot(x, y) * Math.cos(rightAscension - omegaAngle)) /
+          Math.cos(librationLatitude),
+      ),
+    ),
+  );
+
+  return {
+    longitude: librationLongitude,
+    latitude: librationLatitude,
+    axisPositionAngle,
   };
 }
 

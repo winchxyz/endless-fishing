@@ -13,3 +13,5 @@ Thumbs.db
 test-results/
 playwright-report/
 *.log
+probe.json
+verify.log

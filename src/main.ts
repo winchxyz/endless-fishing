@@ -1,7 +1,12 @@
 import './ui/styles.css';
 import { createEngine, type Engine } from './core/Engine.js';
 import { DebugPanel } from './core/DebugPanel.js';
+import { installDebugApi } from './core/DebugApi.js';
 import { LoadingScreen, showFatalError } from './ui/LoadingScreen.js';
+import { Sky } from './world/Sky.js';
+import { Ocean } from './world/Ocean.js';
+import { PostFX } from './render/PostFX.js';
+import { locationFromTimezone, requestLocation } from './world/Geolocation.js';
 
 /**
  * Entry point. Boots the engine, wires the loading screen to real resource progress, and
@@ -31,6 +36,34 @@ async function boot(): Promise<void> {
     const fraction = total === 0 ? 1 : completed / total;
     loading.set(0.15 + fraction * 0.8, `Loading ${label.split('/').pop() ?? label}`);
   });
+
+  // Non-blocking: the game starts at the timezone-inferred position and snaps to the real one
+  // if and when the browser grants permission. Nothing waits on a permission dialog.
+  const guess = locationFromTimezone();
+  engine.settings.setLocationIfUnset(guess.latitudeDeg, guess.longitudeDeg);
+  void requestLocation().then((location) => {
+    if (location.source === 'geolocation') {
+      engine.settings.setLocation(location.latitudeDeg, location.longitudeDeg);
+    }
+  });
+
+  const sky = await Sky.create(engine);
+  engine.add(sky);
+  sky.onSettingsChanged(engine);
+
+  engine.add(new Ocean(engine));
+
+  // A default sea until the weather system takes over in phase 9: force 4, a fresh breeze on
+  // a long fetch. Enough chop to see the wave model working, calm enough to fish in.
+  engine.world.windSpeed = 7.2;
+  engine.world.windX = 0.82;
+  engine.world.windZ = -0.57;
+  engine.world.cloudiness = 0.35;
+
+  // Registered last so it sees the finished scene; it takes over rendering from the engine.
+  engine.add(new PostFX(engine));
+
+  installDebugApi(engine);
 
   loading.set(0.96, 'Compiling shaders');
   engine.start();

@@ -10,6 +10,7 @@ import {
   probeCapabilities,
   type Capabilities,
 } from './RendererFactory.js';
+import { createWorldState, type WorldState } from './WorldState.js';
 
 /**
  * A system is a self-contained slice of the game — the ocean, the weather, the boat.
@@ -24,6 +25,12 @@ export interface System {
   readonly priority: number;
   fixedUpdate?(dt: number, engine: Engine): void;
   update?(dt: number, engine: Engine): void;
+  /**
+   * Runs after every `update` and before the main render. For passes that need to draw the
+   * scene into their own target first — the ocean's refraction buffer, the cloud-shadow mask —
+   * where doing it inside `update` would capture a half-updated scene.
+   */
+  beforeRender?(engine: Engine): void;
   /** Called after a settings change that this system cares about. */
   onSettingsChanged?(engine: Engine): void;
   resize?(width: number, height: number): void;
@@ -41,6 +48,8 @@ export class Engine {
   readonly input: Input;
   readonly resources: ResourceManager;
   readonly loop: Loop;
+  /** Shared per-frame snapshot. Written by Sky and Weather; read by everyone else. */
+  readonly world: WorldState = createWorldState();
 
   /** Viewport in CSS pixels. */
   width = 1;
@@ -131,6 +140,7 @@ export class Engine {
     this.debug?.beginFrame();
     this.time.advance(dt);
     for (const system of this.systems) system.update?.(dt, this);
+    for (const system of this.systems) system.beforeRender?.(this);
 
     this.renderer.info.reset();
     if (this.renderOverride !== null) {

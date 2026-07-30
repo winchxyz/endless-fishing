@@ -180,3 +180,119 @@ to be awkward in different ways. Every event matched **to the minute**:
 
 Frozen as a regression test in `test/astronomy.test.ts`. Reproduce with
 `npx tsx scripts/almanac-check.ts 2026-07-30 32.08 34.78 3`.
+
+---
+
+## Phase 2 — Sky
+
+### 15. Hillaire's LUT atmosphere, not Preetham or a gradient
+
+Three tables — transmittance (256×64), multiple scattering (32×32), sky view (192×108) — with
+ozone absorption and a multiple-scattering term. The first two depend only on the medium and
+are built once; only the sky-view table is rebuilt, and only when the solar altitude moves more
+than 0.15°, which at real time is about once every forty seconds.
+
+Two things justify the complexity over an analytic Preetham fit. **Ozone** absorbs in the
+Chappuis band and sits in a layer around 25 km; at noon it is negligible, but at twilight the
+light path runs hundreds of kilometres through it and it is the entire reason the zenith goes
+deep blue rather than muddy brown. **Multiple scattering** is what fills the shadows on an
+overcast day; single scattering alone leaves a sky that is far too dark near the horizon.
+
+Earth's shadow and the Belt of Venus are not drawn and not special-cased. They emerge from the
+integral, because looking east at dusk the lower samples along the view ray have the sun below
+their own local horizon and contribute nothing while the higher ones still catch it.
+
+### 16. The HDRI modulates the analytic sky; it never replaces it
+
+Each panorama is divided by its own measured mean luminance, making it a dimensionless field
+averaging 1 — cloud shapes with the exposure of the day it was shot stripped out. That field
+then *multiplies* the analytic sky. So absolute luminance, twilight colour and the horizon
+gradient stay driven by the real solar altitude, while the cloud structure comes from a
+photograph of real clouds. It also means a sky shot at noon in South Africa is legitimately
+usable at dusk in the North Sea: only its shapes survive.
+
+The baked sun is not masked by position — it is compressed by a soft luminance knee well above
+ordinary cloud brightness, so sky and cloud pass through untouched and the solar blob is
+crushed to something the analytic disc can be drawn over.
+
+### 17. Lunar libration is implemented
+
+Meeus ch. 53, optical terms. The Moon nods ±7.6° in longitude and ±6.7° in latitude over a
+month, which visibly swings features around the limb; over a lunation you see 59% of the
+surface. Physical libration (a further 0.02°) is not implemented — at a disc half a degree
+across it is a fraction of a pixel and would cost eighteen more coefficients.
+
+The disc is shaded with **Lommel-Seeliger**, not Lambert. Regolith backscatters strongly, which
+is why a full moon reads as a flat bright disc; Lambert would put a dark ring around the limb
+that appears in no photograph.
+
+### 18. The Milky Way is procedural, in true galactic coordinates
+
+See §9 for why it is not the NASA panorama. The band is placed by the IAU galactic pole
+transform, so it sits exactly where the real one does and tilts correctly through the night.
+Structure is a disc profile, a Sagittarius bulge, fBm star-cloud clumping, and the Great Rift
+subtracted rather than multiplied so the dust lanes cut hard-edged voids.
+
+### 19. Water reflects the raw cubemap, materials read the PMREM
+
+The environment probe exposes both. Water is very nearly a mirror and a roughness-prefiltered
+lookup would blur away exactly the horizon detail the reflection is made of, so the ocean picks
+its own mip level from its own roughness. PBR materials get the PMREM output as
+`scene.environment`.
+
+---
+
+## Phase 3 — Ocean
+
+### 20. Waves are sampled from JONSWAP, never hand-tuned
+
+Amplitudes, wavenumbers and directions are importance-sampled from a JONSWAP spectrum
+parameterised by wind speed and fetch, with a cos^2s directional spreading function whose
+exponent is tied to the Beaufort force — a young sea under a rising wind is short-crested and
+confused, a long-fetch swell is organised. Significant wave height and peak period are *read
+off* the resulting bank rather than chosen, so the HUD and the boat's handling model learn the
+sea state from the spectrum.
+
+Non-repetition comes from irrational frequency jitter: with commensurate frequencies the
+surface returns to its starting configuration on a fixed cycle, and on open water that pulse is
+very visible.
+
+### 21. CPU/GPU parity is verified on the GPU, not mocked
+
+`math/Gerstner.ts` and `shaders/lib/gerstner.glsl` are hand-mirrored. A vitest unit test could
+only compare the TypeScript against itself, so instead `npm run verify` renders
+`gerstnerDisplacement` for 4096 sample points into a float target, reads it back, and compares
+against the CPU evaluation. **Measured agreement: 0.0059 mm maximum, 0.0012 mm RMS.** The build
+fails above 1 mm.
+
+### 22. One draw call for the whole sea
+
+The clipmap is merged into a single buffer with per-vertex cell size and ring extent, rather
+than one mesh per level. Levels snap to their own lattices in the vertex shader (without which
+the mesh crawls beneath the wave field as the boat moves) and geomorph towards the next coarser
+lattice over their outer quarter, so by the shared boundary the two levels sit on the same
+lattice — which closes the T-junction cracks and removes the popping in one mechanism.
+
+---
+
+## Phase 5 — brought forward
+
+### 23. Tone mapping had to move to the composer before anything was viewable
+
+`ShaderMaterial` does not include three's tone-mapping chunk, so a custom shader writing
+physical radiance goes straight to the framebuffer and clips. The scene is authored in real
+units — the sky is thousands of cd/m² at noon and hundredths at night — so the post chain is
+not a polish pass here, it is the only thing that makes the image exist. It was implemented in
+phase 3 rather than phase 5 for that reason.
+
+Order is exposure → bloom → ACES → grade → lens artefacts → SMAA. Exposure first so the bloom
+threshold can be stated as "brighter than diffuse white" instead of in absolute nits; SMAA last
+because antialiasing belongs in display-referred space.
+
+### 24. Physical radiance is clamped to 60000 before it reaches a half-float buffer
+
+The solar disc is genuinely about 1.6×10⁹ cd/m². A half float tops out at 65504, so the true
+value stores as `Infinity` — and the bloom pass then averages that infinity down its mip chain
+and returns a white frame, every pixel. 60000 is roughly four stops above a correctly exposed
+white at any time of day, which is all the headroom ACES and the bloom threshold can use; after
+tone mapping nothing downstream can distinguish it from the true value.

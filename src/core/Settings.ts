@@ -201,6 +201,8 @@ export class Settings {
   readonly audio: AudioSettings;
 
   private readonly listeners = new Set<SettingsListener>();
+  /** True once a stored or user-chosen position exists, so guesses stop overwriting it. */
+  private locationExplicit = false;
 
   constructor(maxAnisotropy: number) {
     this.graphics = { ...PRESETS.high, anisotropy: maxAnisotropy };
@@ -214,6 +216,24 @@ export class Settings {
     };
     this.audio = { masterVolume: 0.8, musicVolume: 0.35, muted: false };
     this.load();
+  }
+
+  /**
+   * Seed the location from a guess (currently the timezone lookup) without overriding a
+   * position the player has already chosen or that geolocation has already supplied.
+   */
+  setLocationIfUnset(latitudeDeg: number, longitudeDeg: number): void {
+    if (this.locationExplicit) return;
+    this.world.latitudeDeg = latitudeDeg;
+    this.world.longitudeDeg = longitudeDeg;
+  }
+
+  /** Mark the location as chosen, so later guesses stop overwriting it. */
+  setLocation(latitudeDeg: number, longitudeDeg: number): void {
+    this.world.latitudeDeg = latitudeDeg;
+    this.world.longitudeDeg = longitudeDeg;
+    this.locationExplicit = true;
+    this.emit('world');
   }
 
   /** Swap in a whole preset, preserving device-derived values like anisotropy. */
@@ -278,8 +298,11 @@ export class Settings {
       if (parsed.audio) Object.assign(this.audio, parsed.audio);
       if (parsed.world) {
         const { latitudeDeg, longitudeDeg, seed } = parsed.world;
-        if (typeof latitudeDeg === 'number') this.world.latitudeDeg = latitudeDeg;
-        if (typeof longitudeDeg === 'number') this.world.longitudeDeg = longitudeDeg;
+        if (typeof latitudeDeg === 'number' && typeof longitudeDeg === 'number') {
+          this.world.latitudeDeg = latitudeDeg;
+          this.world.longitudeDeg = longitudeDeg;
+          this.locationExplicit = true;
+        }
         if (typeof seed === 'number') this.world.seed = seed;
       }
     } catch {

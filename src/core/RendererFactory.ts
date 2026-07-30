@@ -1,9 +1,4 @@
-import {
-  ACESFilmicToneMapping,
-  PCFSoftShadowMap,
-  SRGBColorSpace,
-  WebGLRenderer,
-} from 'three';
+import { NoToneMapping, PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 
 /**
  * Renderer construction and capability probing.
@@ -72,10 +67,16 @@ export function createRenderer(canvas: HTMLCanvasElement): {
   }
 
   renderer.outputColorSpace = SRGBColorSpace;
-  renderer.toneMapping = ACESFilmicToneMapping;
+  // Tone mapping belongs to the composer, not the renderer: the scene is rendered into a
+  // half-float target in physical units and ACES is applied there, after exposure and bloom.
+  // Leaving it on here would tone-map twice and crush every highlight.
+  renderer.toneMapping = NoToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
+  // PCFSoft is deprecated in r185 and silently downgrades to PCF with a console warning, so
+  // ask for PCF directly. Softness comes from the cascade blend in CSM instead, which is the
+  // better place for it at these draw distances anyway.
+  renderer.shadowMap.type = PCFShadowMap;
   renderer.shadowMap.autoUpdate = true;
   renderer.info.autoReset = false;
   renderer.debug.checkShaderErrors = import.meta.env.DEV;

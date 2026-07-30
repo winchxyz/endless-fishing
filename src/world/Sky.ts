@@ -1,0 +1,496 @@
+import {
+  BufferAttribute,
+  BufferGeometry,
+  ClampToEdgeWrapping,
+  Color,
+  Matrix4,
+  Mesh,
+  ShaderMaterial,
+  Texture,
+  Vector2,
+  Vector3,
+  type Camera,
+  type Scene,
+  type WebGLRenderer,
+} from 'three';
+import { CSM } from 'three/examples/jsm/csm/CSM.js';
+import type { Engine, System } from '../core/Engine.js';
+import { SKY_LAYER, EnvironmentProbe } from '../render/EnvironmentProbe.js';
+import { Atmosphere } from './Atmosphere.js';
+import { SkyLibrary, type SkyEntry, type SkyWeatherFamily } from './SkyLibrary.js';
+import { StarField } from './StarField.js';
+import { computeEphemeris, dominantLightBlend, type EphemerisState } from '../astro/Ephemeris.js';
+import { lunarIlluminanceLux } from '../astro/LunarPosition.js';
+import { SOLAR_CONSTANT_LUX } from '../astro/SolarPosition.js';
+import { horizonFlattening } from '../astro/Refraction.js';
+import { damp, clamp, smoothstep } from '../math/Noise.js';
+import skyVert from '../shaders/sky/sky.vert';
+import skyFrag from '../shaders/sky/sky.frag';
+
+/**
+ * The sky system: atmosphere, celestial bodies, star field, light rig and exposure.
+ *
+ * This is the system that turns the ephemeris into photons. Everything downstream — the
+ * ocean's specular path, the boat's shading, the colour grade, when the navigation lights come
+ * on, when the fish bite — reads the result rather than deciding for itself what time it is.
+ *
+ * Units are physical throughout: illuminance in lux, radiance in candela per square metre.
+ * The sun is 100 000 lux at noon and the full moon is a quarter of a lux, a ratio of 400 000
+ * to one, and the exposure controller is what makes both of them look right on a screen with
+ * a contrast ratio of about a thousand.
+ */
+
+/** Colour temperature of moonlight as the eye reports it, not as a spectrometer does. */
+const MOONLIGHT_COLOUR = new Color(0.72, 0.80, 1.0);
+const SUNLIGHT_WARM = new Color(1.0, 0.62, 0.36);
+const SUNLIGHT_NOON = new Color(1.0, 0.96, 0.92);
+
+/**
+ * Calibration for the lunar disc's surface radiance.
+ *
+ * The NASA albedo map is an sRGB image with a mean well above the Moon's true 0.12 geometric
+ * albedo, and the Lommel-Seeliger term in the shader peaks around 0.5 rather than 1. This
+ * constant folds both out so that a full moon at the zenith renders at roughly the measured
+ * 4000 cd/m².
+ */
+const MOON_DISC_CALIBRATION = 5.6;
+
+/** Metres of eye height above the sea, for horizon dip and the atmosphere's observer altitude. */
+const DEFAULT_EYE_HEIGHT_M = 2.2;
+
+/**
+ * Frames between exposure meter readings.
+ *
+ * `readRenderTargetPixels` stalls the pipeline, so this is not something to do every frame —
+ * but the sky changes over minutes and the adaptation is deliberately slow, so four readings a
+ * second is far more than the eye can distinguish from continuous.
+ */
+const EXPOSURE_SAMPLE_INTERVAL = 15;
+
+export class Sky implements System {
+  readonly name = 'sky';
+  readonly priority = 0;
+
+  readonly atmosphere = new Atmosphere();
+  readonly library: SkyLibrary;
+  readonly stars: StarField;
+  readonly probe: EnvironmentProbe;
+
+  private readonly dome: Mesh;
+  private readonly material: ShaderMaterial;
+  private readonly csm: CSM;
+
+  private readonly sunDirection = new Vector3(0, 1, 0);
+  private readonly moonDirection = new Vector3(0, -1, 0);
+  private readonly lightDirection = new Vector3(0, -1, 0);
+  private readonly lightColour = new Color();
+  private readonly moonSunDirection = new Vector3(0, 0, 1);
+  private readonly libration = new Vector2();
+  private readonly inverseProjection = new Matrix4();
+
+  private weather: SkyWeatherFamily = 'partly-cloudy';
+  private adaptedIlluminance = 10000;
+  private measuredSkyIlluminance = 10000;
+  private exposureSampleCountdown = 0;
+
+  private constructor(engine: Engine, library: SkyLibrary, stars: StarField) {
+    this.library = library;
+    this.stars = stars;
+
+    this.material = new ShaderMaterial({
+      vertexShader: skyVert,
+      fragmentShader: skyFrag,
+      uniforms: {
+        uInverseProjection: { value: new Matrix4() },
+        uCameraWorld: { value: new Matrix4() },
+        uSkyViewLut: { value: this.atmosphere.skyViewLut },
+        uTransmittanceLut: { value: this.atmosphere.transmittanceLut },
+        uHdriA: { value: null },
+        uHdriB: { value: null },
+        uHdriBlend: { value: 0 },
+        uHdriRotationA: { value: 0 },
+        uHdriRotationB: { value: 0 },
+        uHdriInvMeanA: { value: 1 },
+        uHdriInvMeanB: { value: 1 },
+        uHdriWeight: { value: 0 },
+        uCloudiness: { value: 0.2 },
+        uSunDirection: { value: new Vector3(0, 1, 0) },
+        uMoonDirection: { value: new Vector3(0, -1, 0) },
+        uSunAngularRadius: { value: 0.00465 },
+        uMoonAngularRadius: { value: 0.00452 },
+        uSunFlattening: { value: 1 },
+        uSunRadiance: { value: new Vector3() },
+        uMoonRadiance: { value: new Vector3() },
+        uMoonAlbedo: { value: null },
+        uMoonNormal: { value: null },
+        uMoonSunDirection: { value: new Vector3(0, 0, 1) },
+        uMoonNorthAngle: { value: 0 },
+        uMoonLibration: { value: new Vector2() },
+        uEarthshine: { value: 0 },
+        uAltitudeKm: { value: DEFAULT_EYE_HEIGHT_M / 1000 },
+        uSkyIntensity: { value: SOLAR_CONSTANT_LUX },
+      },
+      depthTest: false,
+      depthWrite: false,
+      // The dome is a clip-space triangle; culling would depend on a winding it does not have.
+      side: 2,
+    });
+
+    this.dome = new Mesh(clipSpaceTriangle(), this.material);
+    this.dome.frustumCulled = false;
+    this.dome.renderOrder = -1000;
+    this.dome.layers.enable(SKY_LAYER);
+    this.dome.onBeforeRender = (
+      _renderer: WebGLRenderer,
+      _scene: Scene,
+      camera: Camera,
+    ): void => {
+      // Runs for the main camera *and* for each of the probe's six cube faces, which is
+      // exactly why the view ray is reconstructed here rather than pushed once per frame.
+      const uniforms = this.material.uniforms;
+      const inverse = uniforms['uInverseProjection'];
+      const world = uniforms['uCameraWorld'];
+      if (inverse !== undefined) {
+        (inverse.value as Matrix4).copy(this.inverseProjection.copy(camera.projectionMatrix).invert());
+      }
+      if (world !== undefined) (world.value as Matrix4).copy(camera.matrixWorld);
+    };
+
+    this.stars.points.layers.enable(SKY_LAYER);
+    this.stars.milkyWay.layers.enable(SKY_LAYER);
+
+    const graphics = engine.settings.graphics;
+    this.csm = new CSM({
+      maxFar: 1400,
+      cascades: Math.max(1, graphics.shadowCascades),
+      mode: 'practical',
+      parent: engine.scene,
+      shadowMapSize: graphics.shadowMapSize,
+      lightDirection: this.lightDirection.clone(),
+      camera: engine.camera,
+      lightIntensity: 1,
+      shadowBias: -0.0005,
+    });
+    this.csm.fade = true;
+
+    this.probe = new EnvironmentProbe(engine.renderer, graphics.probeResolution);
+  }
+
+  static async create(engine: Engine): Promise<Sky> {
+    const [library, stars] = await Promise.all([
+      SkyLibrary.load(engine.resources),
+      StarField.load(engine.resources),
+    ]);
+    const sky = new Sky(engine, library, stars);
+
+    // Eagerly load the panoramas the current moment actually needs, so the first frame is
+    // never drawn with a placeholder sky; the rest stream in behind the loading screen.
+    const ephemeris = computeEphemeris(engine.time.epochMs, sky.location(engine));
+    const selection = library.select(sky.weather, ephemeris.sunAltitudeDeg);
+    await Promise.all([library.ensureLoaded(selection.a), library.ensureLoaded(selection.b)]);
+
+    // The lunar maps wrap in longitude (the far limb is continuous) but must clamp in latitude,
+    // or the pole texel bleeds round to the opposite pole and puts a bright seam on the limb.
+    const [albedo, normal] = await Promise.all([
+      engine.resources.loadTexture('processed/moon/albedo.webp', { srgb: true }),
+      engine.resources.loadTexture('processed/moon/normal.webp', { srgb: false }),
+    ]);
+    albedo.wrapT = ClampToEdgeWrapping;
+    normal.wrapT = ClampToEdgeWrapping;
+    sky.setUniform('uMoonAlbedo', albedo);
+    sky.setUniform('uMoonNormal', normal);
+
+    engine.scene.add(sky.dome, sky.stars.milkyWay, sky.stars.points);
+    return sky;
+  }
+
+  /** Scale from the atmosphere LUT's units to candela per square metre. */
+  get skyIntensity(): number {
+    const uniform = this.material.uniforms['uSkyIntensity'];
+    return typeof uniform?.value === 'number' ? uniform.value : SOLAR_CONSTANT_LUX;
+  }
+
+  /** The weather family the sky library should draw from. Set by the weather system. */
+  setWeather(family: SkyWeatherFamily): void {
+    this.weather = family;
+  }
+
+  update(dt: number, engine: Engine): void {
+    const world = engine.world;
+    const location = this.location(engine);
+    const conditions = {
+      pressureMbar: world.pressureHpa,
+      temperatureC: world.temperatureC,
+    };
+
+    const state = computeEphemeris(engine.time.epochMs, location, conditions);
+    world.ephemeris = state;
+
+    this.sunDirection.set(
+      state.sunDirectionRefracted.x,
+      state.sunDirectionRefracted.y,
+      state.sunDirectionRefracted.z,
+    );
+    this.moonDirection.set(state.moonDirection.x, state.moonDirection.y, state.moonDirection.z);
+
+    this.updateAtmosphere(engine, state);
+    this.updateHdri(state, world.cloudiness);
+    this.updateCelestialUniforms(state, conditions);
+    this.updateLights(state, world.cloudiness);
+    this.updateExposure(dt, engine, state, world);
+
+    const nightFactor = 1 - smoothstep(-14, -3, state.sunAltitudeDeg);
+    this.stars.update(state, engine.camera.position, engine.loop.elapsed, nightFactor);
+    this.library.tick();
+
+    this.csm.update();
+
+    const probeChanged = this.probe.update(
+      engine.renderer,
+      engine.scene,
+      engine.settings.graphics.probeFacesPerFrame,
+    );
+    if (probeChanged) {
+      const texture = this.probe.texture;
+      if (texture !== null) engine.scene.environment = texture;
+    }
+  }
+
+  onSettingsChanged(engine: Engine): void {
+    const graphics = engine.settings.graphics;
+    this.probe.setResolution(engine.renderer, graphics.probeResolution);
+    // Star sprite size scales with render height so the field looks the same at any resolution.
+    const pixelScale = (engine.height * engine.pixelRatio) / 480;
+    const magnitudeLimit = graphics.preset === 'low' ? 5.2 : graphics.preset === 'medium' ? 6.0 : 6.5;
+    this.stars.configure(pixelScale, magnitudeLimit, 1);
+  }
+
+  resize(_width: number, height: number): void {
+    this.stars.configure(height / 480, 6.5, 1);
+    this.csm.updateFrustums();
+  }
+
+  dispose(): void {
+    this.csm.dispose();
+    this.probe.dispose();
+    this.atmosphere.dispose();
+    this.stars.dispose();
+    this.library.dispose();
+    this.material.dispose();
+    this.dome.geometry.dispose();
+    // The lunar textures are owned by the ResourceManager's ledger, not by us.
+  }
+
+  private location(engine: Engine): { latitudeDeg: number; longitudeDeg: number; elevationM: number } {
+    return {
+      latitudeDeg: engine.settings.world.latitudeDeg,
+      longitudeDeg: engine.settings.world.longitudeDeg,
+      elevationM: DEFAULT_EYE_HEIGHT_M,
+    };
+  }
+
+  private updateAtmosphere(engine: Engine, state: EphemerisState): void {
+    const rebuilt = this.atmosphere.update(
+      engine.renderer,
+      state.sunAltitudeDeg,
+      DEFAULT_EYE_HEIGHT_M / 1000,
+      Math.max(16, Math.round(engine.settings.graphics.cloudSteps * 0.6)),
+    );
+    if (rebuilt) this.probe.invalidate();
+  }
+
+  private updateHdri(state: EphemerisState, cloudiness: number): void {
+    const selection = this.library.select(this.weather, state.sunAltitudeDeg);
+    const textureA = this.library.texture(selection.a);
+    const textureB = this.library.texture(selection.b);
+
+    // Until a panorama is resident, fall back to whichever one is, and if neither is, drop the
+    // structure weight to zero so the analytic sky simply shows through unmodulated. A missing
+    // texture must never produce a black sky.
+    const resolvedA = textureA ?? textureB ?? null;
+    const resolvedB = textureB ?? textureA ?? null;
+
+    this.setUniform('uHdriA', resolvedA);
+    this.setUniform('uHdriB', resolvedB);
+    this.setUniform('uHdriBlend', textureA === undefined ? 1 : textureB === undefined ? 0 : selection.blend);
+    this.setUniform('uHdriRotationA', this.library.rotationFor(selection.a, state.sunAzimuthDeg));
+    this.setUniform('uHdriRotationB', this.library.rotationFor(selection.b, state.sunAzimuthDeg));
+    this.setUniform('uHdriInvMeanA', this.library.inverseMeanLuminance(selection.a));
+    this.setUniform('uHdriInvMeanB', this.library.inverseMeanLuminance(selection.b));
+
+    // How much cloud structure to overlay. Even a "clear" sky gets a little, because a real
+    // clear sky is never perfectly smooth, but it rises steeply with cloud fraction.
+    const available = resolvedA !== null ? 1 : 0;
+    this.setUniform('uHdriWeight', available * clamp(0.18 + cloudiness * 0.72, 0, 0.95));
+    this.setUniform('uCloudiness', cloudiness);
+  }
+
+  private updateCelestialUniforms(
+    state: EphemerisState,
+    conditions: { pressureMbar: number; temperatureC: number },
+  ): void {
+    const sunUniform = this.material.uniforms['uSunDirection'];
+    if (sunUniform !== undefined) (sunUniform.value as Vector3).copy(this.sunDirection);
+    const moonUniform = this.material.uniforms['uMoonDirection'];
+    if (moonUniform !== undefined) (moonUniform.value as Vector3).copy(this.moonDirection);
+
+    this.setUniform('uSunAngularRadius', state.sun.angularRadius);
+    this.setUniform('uMoonAngularRadius', state.moon.angularRadius);
+    this.setUniform(
+      'uSunFlattening',
+      horizonFlattening(state.sun.horizontal.altitude, state.sun.angularRadius, conditions),
+    );
+
+    // Radiance of the solar disc: total irradiance spread over the disc's solid angle. The
+    // extinction along the view ray is applied in the shader from the transmittance LUT, so
+    // this is the top-of-atmosphere value scaled only by the Earth-Sun distance.
+    const sunSolidAngle = Math.PI * state.sun.angularRadius * state.sun.angularRadius;
+    const sunRadiance =
+      SOLAR_CONSTANT_LUX / (state.sun.distanceAu * state.sun.distanceAu) / sunSolidAngle;
+    this.setVectorUniform('uSunRadiance', sunRadiance, sunRadiance, sunRadiance);
+
+    // The lunar disc's radiance must NOT include the phase: the shader produces the phase from
+    // the sub-solar direction, and folding it in here as well would darken a crescent twice.
+    // So this is evaluated as if the Moon were full, at its true distance and altitude.
+    const fullMoonIlluminance = lunarIlluminanceLux(
+      Math.max(0.01, state.moon.apparentAltitude),
+      state.moon.distanceKm,
+      0,
+    );
+    const moonSolidAngle = Math.PI * state.moon.angularRadius * state.moon.angularRadius;
+    const moonRadiance = (fullMoonIlluminance / moonSolidAngle) * MOON_DISC_CALIBRATION;
+    this.setVectorUniform('uMoonRadiance', moonRadiance, moonRadiance, moonRadiance);
+
+    this.moonSunDirection.set(
+      state.moon.sunDirection.x,
+      state.moon.sunDirection.y,
+      state.moon.sunDirection.z,
+    );
+    const moonSun = this.material.uniforms['uMoonSunDirection'];
+    if (moonSun !== undefined) (moonSun.value as Vector3).copy(this.moonSunDirection);
+
+    this.setUniform('uMoonNorthAngle', state.moon.northScreenAngle);
+    this.libration.set(state.moon.librationLongitude, state.moon.librationLatitude);
+    const librationUniform = this.material.uniforms['uMoonLibration'];
+    if (librationUniform !== undefined) (librationUniform.value as Vector2).copy(this.libration);
+
+    // Earthshine tracks how lit the Earth looks from the Moon, which is the complement of the
+    // Moon's own phase — brightest under a thin crescent, exactly as photographs show.
+    const earthPhase = 1 - state.moon.illuminatedFraction;
+    this.setUniform('uEarthshine', moonRadiance * 0.014 * earthPhase * earthPhase);
+  }
+
+  private updateLights(state: EphemerisState, cloudiness: number): void {
+    const moonWeight = dominantLightBlend(state);
+
+    // Slerp the direction rather than switching. At handover both bodies are near the horizon
+    // and contributing almost nothing, so the shadows swing round without anyone noticing —
+    // whereas a hard swap would snap every shadow in the scene through ninety degrees.
+    this.lightDirection
+      .copy(this.sunDirection)
+      .multiplyScalar(1 - moonWeight)
+      .addScaledVector(this.moonDirection, moonWeight);
+    if (this.lightDirection.lengthSq() < 1e-8) this.lightDirection.set(0, 1, 0);
+    this.lightDirection.normalize().negate();
+
+    // Warm the sunlight as it approaches the horizon. This is not a colour ramp for effect —
+    // it is the same Rayleigh extinction the sky is using, sampled along the beam.
+    const warmth = 1 - smoothstep(0, 18, state.sunAltitudeDeg);
+    const sunColour = SUNLIGHT_NOON.clone().lerp(SUNLIGHT_WARM, warmth * warmth);
+    this.lightColour.copy(sunColour).lerp(MOONLIGHT_COLOUR, moonWeight);
+
+    // Cloud cover kills the directional component and hands the energy to the sky probe.
+    const directBlocked = 1 - cloudiness * 0.92;
+    const illuminance =
+      (state.sunIlluminanceLux * (1 - moonWeight) + state.moonIlluminanceLux * moonWeight) *
+      directBlocked;
+
+    this.csm.lightDirection.copy(this.lightDirection);
+    this.csm.lightIntensity = illuminance;
+    for (const light of this.csm.lights) {
+      light.color.copy(this.lightColour);
+      light.intensity = illuminance;
+      light.castShadow = illuminance > 40;
+    }
+  }
+
+  private updateExposure(
+    dt: number,
+    engine: Engine,
+    state: EphemerisState,
+    world: { exposure: number; sceneIlluminanceLux: number; cloudiness: number },
+  ): void {
+    // Meter from the sky that was actually rendered, not from a model of it.
+    //
+    // The first version estimated skylight from solar altitude with an exponential fit. It was
+    // right at noon and two stops out at civil dawn, because no closed form tracks what a
+    // multiple-scattering atmosphere really does through twilight. Reading three texels out of
+    // the sky-view table costs a pipeline flush a few times a second and is exact by
+    // construction: whatever the atmosphere produces, the exposure follows it.
+    //
+    // Sampling the zenith, the horizon and a point between them approximates the hemispheric
+    // average well enough for metering, and weights the horizon lightly because that is where
+    // the sky is brightest but also where the least of the frame is.
+    this.exposureSampleCountdown -= 1;
+    if (this.exposureSampleCountdown <= 0) {
+      this.exposureSampleCountdown = EXPOSURE_SAMPLE_INTERVAL;
+      const scale = this.skyIntensity;
+      const zenith = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 1.0);
+      const middle = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 0.75);
+      const horizon = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 0.53);
+      const luminanceOf = (rgb: [number, number, number]): number =>
+        Math.max(0, 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) * scale;
+      const skyLuminance =
+        0.42 * luminanceOf(zenith) + 0.38 * luminanceOf(middle) + 0.2 * luminanceOf(horizon);
+      // Radiance over the hemisphere back to illuminance on a horizontal surface.
+      this.measuredSkyIlluminance = skyLuminance * Math.PI;
+    }
+
+    const total =
+      state.sunIlluminanceLux * 0.35 +
+      state.moonIlluminanceLux +
+      this.measuredSkyIlluminance * (0.55 + world.cloudiness * 0.45) +
+      2.5e-4;
+
+    // Adaptation is deliberately slow, and slower going dark than going bright — which is how
+    // eyes behave, and which stops a cloud crossing the sun from pumping the whole frame.
+    const brightening = total > this.adaptedIlluminance;
+    const rate = brightening ? 0.9 : 0.35;
+    this.adaptedIlluminance = Math.max(
+      1e-4,
+      damp(this.adaptedIlluminance, total, rate, Math.min(dt, 0.1)),
+    );
+
+    // Standard physically-based exposure: average scene luminance from illuminance and a
+    // representative reflectance, then the Saturation-Based Sensitivity formulation.
+    const averageLuminance = (this.adaptedIlluminance * 0.16) / Math.PI;
+    const ev100 = Math.log2((averageLuminance * 100) / 12.5);
+    world.exposure = 1 / (1.2 * 2 ** ev100);
+    world.sceneIlluminanceLux = this.adaptedIlluminance;
+  }
+
+  private setUniform(name: string, value: number | Texture | null): void {
+    const uniform = this.material.uniforms[name];
+    if (uniform !== undefined) uniform.value = value;
+  }
+
+  private setVectorUniform(name: string, x: number, y: number, z: number): void {
+    const uniform = this.material.uniforms[name];
+    if (uniform !== undefined) (uniform.value as Vector3).set(x, y, z);
+  }
+}
+
+/** A single triangle covering clip space, with UVs the fullscreen vertex shader ignores. */
+function clipSpaceTriangle(): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3),
+  );
+  geometry.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 2, 0, 0, 2]), 2));
+  geometry.boundingSphere = null;
+  return geometry;
+}
+
+/** Re-exported so the boat and world systems can ask which panorama family is in play. */
+export type { SkyEntry, SkyWeatherFamily };
