@@ -5,6 +5,7 @@ import {
   DoubleSide,
   HalfFloatType,
   LinearFilter,
+  Matrix4,
   Mesh,
   ShaderMaterial,
   Vector2,
@@ -118,6 +119,9 @@ export class Ocean implements System {
         uRefraction: { value: this.refraction.texture },
         uResolution: { value: new Vector2(1, 1) },
         uRefractionStrength: { value: 0.06 },
+        uCloudShadow: { value: null },
+        uCloudShadowMatrix: { value: new Matrix4() },
+        uCloudShadowStrength: { value: 0 },
       },
       // The camera can pass through a crest, and a back-facing wave that vanishes is far more
       // objectionable than the cost of drawing both sides of a surface this simple.
@@ -135,6 +139,24 @@ export class Ocean implements System {
     this.uploadBank();
     engine.scene.add(this.mesh);
   }
+
+  /**
+   * Hand the ocean the cloud layer's shadow mask.
+   *
+   * Structurally typed rather than importing `Clouds`, so `world/Ocean` does not depend on
+   * `world/Clouds` — the ocean does not care what casts the shadow, only that something does.
+   *
+   * This is the feature the brief singles out as doing more for a living sky than any other,
+   * and it is worth being clear about why: without it a broken-cloud day lights the entire sea
+   * uniformly, which reads as an overcast sky no matter what is drawn overhead. With it, the
+   * water goes from bright to slate and back as the cloud field drifts, and the sea suddenly
+   * has weather happening *to* it.
+   */
+  setCloudShadows(source: { shadowTexture: Texture | null; shadowMatrix: Matrix4 }): void {
+    this.cloudShadows = source;
+  }
+
+  private cloudShadows: { shadowTexture: Texture | null; shadowMatrix: Matrix4 } | null = null;
 
   /** Significant wave height of the sea currently on screen, metres. */
   get significantWaveHeight(): number {
@@ -274,6 +296,20 @@ export class Ocean implements System {
     const sky = engine.get<Sky>('sky');
     const environment = uniforms['uEnvironment'];
     if (environment !== undefined && sky !== undefined) environment.value = sky.probe.cubeTexture;
+
+    const shadowTexture = this.cloudShadows?.shadowTexture ?? null;
+    const shadowUniform = uniforms['uCloudShadow'];
+    if (shadowUniform !== undefined) shadowUniform.value = shadowTexture;
+    const matrixUniform = uniforms['uCloudShadowMatrix'];
+    if (matrixUniform !== undefined && this.cloudShadows !== null) {
+      (matrixUniform.value as Matrix4).copy(this.cloudShadows.shadowMatrix);
+    }
+    // No mask, no shadow — and none on an overcast day either, where there is no direct beam
+    // left to interrupt and a moving pattern would look like a projector fault.
+    const strength = uniforms['uCloudShadowStrength'];
+    if (strength !== undefined) {
+      strength.value = shadowTexture === null ? 0 : 1 - engine.world.cloudiness * 0.85;
+    }
   }
 
   onSettingsChanged(engine: Engine): void {

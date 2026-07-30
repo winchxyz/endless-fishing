@@ -6,6 +6,8 @@ import { LoadingScreen, showFatalError } from './ui/LoadingScreen.js';
 import { Sky } from './world/Sky.js';
 import { Ocean } from './world/Ocean.js';
 import { Tides } from './world/Tides.js';
+import { Weather } from './world/Weather.js';
+import { Clouds } from './world/Clouds.js';
 import { PostFX } from './render/PostFX.js';
 import { MaterialLibrary } from './render/Materials.js';
 import { Boat } from './entities/Boat.js';
@@ -55,15 +57,15 @@ async function boot(): Promise<void> {
   engine.add(sky);
   sky.onSettingsChanged(engine);
 
-  const ocean = new Ocean(engine);
-  engine.add(ocean);
+  // Weather is the sole writer of the wind, cloud and pressure fields, so it goes in before
+  // anything that reads them. Clouds resolve Sky lazily, so both must follow it.
+  engine.add(new Weather(engine));
+  const clouds = new Clouds(engine);
+  engine.add(clouds);
 
-  // A default sea until the weather system takes over: force 4, a fresh breeze on a long
-  // fetch. Enough chop to see the wave model working, calm enough to fish in.
-  engine.world.windSpeed = 7.2;
-  engine.world.windX = 0.82;
-  engine.world.windZ = -0.57;
-  engine.world.cloudiness = 0.35;
+  const ocean = new Ocean(engine);
+  ocean.setCloudShadows(clouds);
+  engine.add(ocean);
 
   engine.add(new Tides());
 

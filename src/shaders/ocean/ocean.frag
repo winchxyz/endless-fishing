@@ -59,6 +59,24 @@ uniform sampler2D uRefraction;
 uniform vec2 uResolution;
 uniform float uRefractionStrength;
 
+// --- cloud shadows --------------------------------------------------------------------------
+//
+// Single-channel coverage mask rendered from the sun's direction by the cloud layer, projected
+// onto the water. It attenuates only the DIRECT beam — the sky's contribution is diffuse and a
+// cloud that blocks the sun does not stop the rest of the hemisphere reaching the surface, so
+// shadowing the ambient too would make the shaded water read as night rather than as shade.
+uniform sampler2D uCloudShadow;
+uniform mat4 uCloudShadowMatrix;
+uniform float uCloudShadowStrength;
+
+float cloudShadowAt(vec3 worldPosition) {
+  if (uCloudShadowStrength <= 0.0) return 1.0;
+  vec2 uv = (uCloudShadowMatrix * vec4(worldPosition, 1.0)).xy;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 1.0;
+  float coverage = texture2D(uCloudShadow, uv).r;
+  return mix(1.0, 1.0 - coverage, uCloudShadowStrength);
+}
+
 /**
  * Diffuse attenuation coefficients, per metre, for red/green/blue.
  *
@@ -217,13 +235,16 @@ void main() {
   // ------------------------------------------------------------------- direct specular
   vec3 specular = vec3(0.0);
   vec3 subsurface = vec3(0.0);
+  float sunShadow = cloudShadowAt(vWorldPosition);
 
   // The sun and the moon go through the same path — the moon's glitter track across the water
   // is the same physics as the sun's, four hundred thousand times dimmer.
   for (int light = 0; light < 2; light++) {
     vec3 L = light == 0 ? uSunDirection : uMoonDirection;
     vec3 colour = light == 0 ? uSunColour : uMoonColour;
-    float illuminance = light == 0 ? uSunIlluminance : uMoonIlluminance;
+    // Only the sun is shadowed: the mask is rendered from the sun's direction, and moonlight
+    // through the same cloud would need its own projection to be anything but wrong.
+    float illuminance = (light == 0 ? uSunIlluminance * sunShadow : uMoonIlluminance);
     if (illuminance <= 0.0 || L.y <= -0.02) continue;
 
     vec3 H = normalize(L + V);

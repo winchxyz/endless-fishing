@@ -343,7 +343,6 @@ export class Clouds implements System {
 
   dispose(): void {
     this.scene.remove(this.resolveMesh, this.probeMesh);
-    this.probeMesh.onBeforeRender = () => {};
     this.geometry.dispose();
     this.marchMaterial.dispose();
     this.probeMaterial.dispose();
