@@ -71,6 +71,17 @@ async function boot(): Promise<void> {
 
   // Weather is the sole writer of the wind, cloud and pressure fields, so it goes in before
   // anything that reads them. Clouds resolve Sky lazily, so both must follow it.
+  // Start in a workable sea.
+  //
+  // The synoptic field is deterministic from the seed, and this seed lands it in a Beaufort 9
+  // gale — so every fresh session opened on a storm, with the boat thrown around, the propeller
+  // ventilating on every crest and the rudder in aerated water. That is a legitimate state for
+  // the model to reach and a terrible one to arrive in: the first thing a player should be able
+  // to do is steer.
+  //
+  // Pinning the opening condition, not disabling the system. Clearing the override in the
+  // settings panel hands the sea straight back to the pressure field.
+  engine.settings.world.weatherOverride = 'light-breeze';
   const weather = new Weather(engine);
   engine.add(weather);
   const clouds = new Clouds(engine);

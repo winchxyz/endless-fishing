@@ -852,10 +852,12 @@
  * corners are all taken by the instruments.
  */
 .help-card {
+  /* Left, not centre. Centred it sat exactly on top of the boat — the one thing a new player
+   * needs to see, hidden by the card telling them how to drive it. */
   position: absolute;
-  left: 50%;
-  bottom: 6vh;
-  transform: translateX(-50%);
+  left: max(18px, env(safe-area-inset-left));
+  bottom: 24vh;
+  transform: none;
   padding: 18px 22px 16px;
   min-width: 320px;
   transition:
@@ -865,7 +867,7 @@
 
 .help-card.is-gone {
   opacity: 0;
-  transform: translateX(-50%) translateY(14px);
+  transform: translateY(14px);
   pointer-events: none;
 }
 

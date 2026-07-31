@@ -262,7 +262,15 @@ export class Underwater implements System, UnderwaterOptics {
     this.updateCaustics(engine, world.cloudiness);
     this.updateWaterColour(world.sceneIlluminanceLux);
 
-    const submerged = this.submersionAmount > 0;
+    // Only once the camera is genuinely under, not the instant it grazes a crest.
+    //
+    // The murk shell is a full-screen wall of water colour drawn at renderOrder −500, which puts
+    // it over the sky (−1000) and the star field (−900). Showing it for any submersion above
+    // zero meant that in a Beaufort 6 sea — where the camera dips below a passing wave every few
+    // seconds — it covered the entire frame. At night the water colour is nearly black, so the
+    // sky, the stars and the moon all disappeared behind it. The threshold now matches
+    // `isSubmerged`, so the shell and the flag that claims the player is underwater agree.
+    const submerged = this.submersionAmount > 0.5;
     this.murk.visible = submerged;
     this.motes.visible = submerged;
     this.shafts.visible = submerged && this.godRaysEnabled && this.causticsStrength > 0.02;
