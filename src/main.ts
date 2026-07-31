@@ -22,6 +22,8 @@ import { Props } from './world/Props.js';
 import { Fish } from './entities/Fish.js';
 import { Birds } from './entities/Birds.js';
 import { UiSystem } from './gameplay/UiSystem.js';
+import { FishingSystem } from './gameplay/FishingSystem.js';
+import { Progression } from './gameplay/Progression.js';
 import { locationFromTimezone, requestLocation } from './world/Geolocation.js';
 
 /**
@@ -129,10 +131,30 @@ async function boot(): Promise<void> {
   // Registered last so it sees the finished scene; it takes over rendering from the engine.
   engine.add(new PostFX(engine));
 
+  const progression = new Progression();
+
+  // The fishing system is handed the effects object by reference, not by value: upgrades change
+  // it in place and the rod must feel the new reel the moment it is bought.
+  const fishing = new FishingSystem(
+    engine,
+    ocean,
+    seabed,
+    boat,
+    fish,
+    progression.effects,
+    engine.settings.world.seed ^ 0xf157,
+  );
+  engine.add(fishing);
+
+  // The rod's parts are MeshStandardMaterial, so unlike the ocean and the terrain they DO need
+  // enrolling with the cascaded shadow map. See HANDOFF.md gotcha 6 — the rule cuts both ways
+  // and getting it backwards is three or four stops of error in either direction.
+  for (const material of fishing.materials) sky.registerShadowMaterial(material);
+
   const uiRoot = document.getElementById('ui-root');
   if (uiRoot === null) throw new Error('#ui-root is missing from index.html');
   const ui = new UiSystem(uiRoot, engine.settings);
-  ui.attach({ boat, weather });
+  ui.attach({ boat, weather, fishing });
   engine.add(ui);
 
   installDebugApi(engine);
