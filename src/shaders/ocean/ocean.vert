@@ -45,6 +45,9 @@ varying vec2 vUndisplaced;
 /** Fraction of the ring, measured from the centre, at which the morph begins. */
 const float MORPH_START = 0.72;
 
+/** Mean Earth radius, metres. */
+const float EARTH_RADIUS_M = 6371000.0;
+
 void main() {
   vec2 local = position.xz;
   vec2 worldXZ = local + uRingCentre;
@@ -81,5 +84,21 @@ void main() {
   vJacobian = jacobian;
   vViewDistance = distance(world, uCameraPosition);
 
-  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  // Earth curvature.
+  //
+  // A flat sea plane never reaches the horizon. Its far edge sits at a depression of
+  // atan(eyeHeight / radius), and the true horizon is at sqrt(2 * eyeHeight / R) — for any
+  // finite plane the first is the larger, so a wedge of below-horizon sky shows between the
+  // water and the sky, all the way round the compass. That wedge is the horizon band: about a
+  // pixel on the High preset, fourteen on Low, and eight from the orbit camera. Dropping every
+  // vertex by d²/2R makes the surface curve away exactly as the sea does, so the mesh's own
+  // silhouette *is* the horizon and there is no wedge left to show through.
+  //
+  // Only the projected position is dropped. `vWorldPosition` stays on the plane, because it
+  // feeds the crest-height and view-direction terms in the fragment shader, and a swell eight
+  // kilometres out must not read as five metres below mean water level.
+  float horizontal = distance(world.xz, uCameraPosition.xz);
+  vec3 projected = vec3(world.x, world.y - horizontal * horizontal / (2.0 * EARTH_RADIUS_M), world.z);
+
+  gl_Position = projectionMatrix * viewMatrix * vec4(projected, 1.0);
 }

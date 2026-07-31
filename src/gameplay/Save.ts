@@ -402,3 +402,138 @@ export function applySavedSettings(settings: Settings, saved: SavedSettings): vo
   settings.world.timeScale = saved.timeScale;
   settings.setLocation(saved.latitudeDeg, saved.longitudeDeg);
 }
+
+// -------------------------------------------------------------------- writing on a schedule
+
+/**
+ * Quiet period before a change is written, milliseconds.
+ *
+ * Landing a fish moves the journal, the purse and the recent log in the same frame, and a
+ * synchronous `localStorage` write is not a thing to do three times inside one. Coalescing them
+ * costs the player nothing, because the lifecycle handlers below guarantee that whatever is
+ * still outstanding is written before the tab can go away.
+ */
+export const SAVE_DEBOUNCE_MS = 1500;
+
+/**
+ * Consecutive failed writes after which this session stops trying.
+ *
+ * `writeSave` fails for exactly two reasons — there is no storage at all, or the quota is full
+ * — and neither tends to clear up while a tab is open. Without a limit, every catch for the
+ * rest of the session would pay for a `setItem` that was only ever going to throw again.
+ */
+const MAX_WRITE_FAILURES = 3;
+
+/** The slice of `window` and `document` the scheduler needs. Both satisfy it. */
+export interface LifecycleTarget {
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+}
+
+export interface SaveSchedulerOptions {
+  storage?: SaveStorage | null;
+  debounceMs?: number;
+}
+
+function asLifecycleTarget(candidate: unknown): LifecycleTarget | null {
+  if (typeof candidate !== 'object' || candidate === null) return null;
+  const target = candidate as LifecycleTarget;
+  if (typeof target.addEventListener !== 'function') return null;
+  if (typeof target.removeEventListener !== 'function') return null;
+  return target;
+}
+
+/** Whichever of `document` and `window` exists here. Empty under Node, which is correct. */
+function resolveLifecycleTargets(): readonly LifecycleTarget[] {
+  const targets: LifecycleTarget[] = [];
+  for (const candidate of [globalThis.document, globalThis.window] as unknown[]) {
+    const target = asLifecycleTarget(candidate);
+    if (target !== null) targets.push(target);
+  }
+  return targets;
+}
+
+/**
+ * Writes the save when something has changed, and makes sure the last change is not lost.
+ *
+ * Three things have to hold at once:
+ *
+ *   * A landed fish must not cost a synchronous write in the frame it lands, so changes are
+ *     coalesced behind `SAVE_DEBOUNCE_MS`.
+ *   * The last change has to survive the tab going away. `beforeunload` is not enough on its
+ *     own — a mobile browser will discard a backgrounded tab without ever firing it — so the
+ *     events that actually carry the guarantee, `visibilitychange` and `pagehide`, are the ones
+ *     listened for.
+ *   * Nothing may reach the console. `npm run verify` fails the build on a single warning, and
+ *     a full quota is not something the player can act on anyway; a failed write is counted
+ *     and, after a few, given up on.
+ */
+export class SaveScheduler {
+  private readonly build: () => SaveData;
+  private readonly storage: SaveStorage | null;
+  private readonly debounceMs: number;
+  private readonly targets: readonly LifecycleTarget[];
+
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private dirty = false;
+  private failures = 0;
+
+  private readonly onLifecycle = (): void => {
+    this.flush();
+  };
+
+  constructor(build: () => SaveData, options: SaveSchedulerOptions = {}) {
+    this.build = build;
+    this.storage = options.storage ?? resolveStorage();
+    this.debounceMs = options.debounceMs ?? SAVE_DEBOUNCE_MS;
+    this.targets = resolveLifecycleTargets();
+    // Both events are registered on both targets. `visibilitychange` is a document event and
+    // `pagehide` a window one, but a listener for an event its target never fires costs
+    // nothing, and this way the scheduler never has to work out which one it was handed.
+    for (const target of this.targets) {
+      target.addEventListener('visibilitychange', this.onLifecycle);
+      target.addEventListener('pagehide', this.onLifecycle);
+    }
+  }
+
+  /** Note that the game state has moved. The write happens once the changes stop. */
+  schedule(): void {
+    this.dirty = true;
+    if (this.timer !== null || this.failures >= MAX_WRITE_FAILURES) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.flush();
+    }, this.debounceMs);
+  }
+
+  /** Write now if anything is outstanding. Returns whether a write actually happened. */
+  flush(): boolean {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.dirty || this.failures >= MAX_WRITE_FAILURES) return false;
+    if (writeSave(this.build(), this.storage)) {
+      this.dirty = false;
+      this.failures = 0;
+      return true;
+    }
+    // The change is still unwritten, so it stays dirty and the next flush will try again —
+    // up to the point where trying is clearly pointless.
+    this.failures += 1;
+    return false;
+  }
+
+  /** True while a change is waiting to be written. */
+  get pending(): boolean {
+    return this.dirty;
+  }
+
+  dispose(): void {
+    this.flush();
+    for (const target of this.targets) {
+      target.removeEventListener('visibilitychange', this.onLifecycle);
+      target.removeEventListener('pagehide', this.onLifecycle);
+    }
+  }
+}

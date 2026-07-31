@@ -34,8 +34,21 @@ float ef_luminance(vec3 colour) {
   return dot(colour, vec3(0.2126, 0.7152, 0.0722));
 }
 
+/**
+ * Linear remap with the input range clamped.
+ *
+ * The zero-span case is handled explicitly rather than left to the division. No call site is
+ * meant to pass one, but the cloud field's coverage remap divides by `1.0 - (1.0 - cover)`, and
+ * in float32 `1.0 - cover` rounds to exactly 1.0 for every cover below 2⁻²⁵ — so a sky damping
+ * down to no cloud at all walks through a window where the span really is zero. That produces
+ * 0/0, and `saturate` is not specified to remove a NaN: it is a `clamp`, and clamp's NaN
+ * behaviour is implementation-defined. One NaN in the cloud march is a black pixel with the sky
+ * erased behind it.
+ */
 float remap(float x, float lowIn, float highIn, float lowOut, float highOut) {
-  return lowOut + (saturate((x - lowIn) / (highIn - lowIn))) * (highOut - lowOut);
+  float span = highIn - lowIn;
+  float t = span == 0.0 ? step(lowIn, x) : (x - lowIn) / span;
+  return lowOut + saturate(t) * (highOut - lowOut);
 }
 
 /**
@@ -51,12 +64,26 @@ float remap(float x, float lowIn, float highIn, float lowOut, float highOut) {
  * the headroom ACES and the bloom threshold can actually use. The clamp is invisible: nothing
  * downstream can distinguish 60000 from 1.6e9 after tone mapping.
  *
- * The `equal` test also strips NaN, which would otherwise survive tone mapping as a black or
- * white speck that flickers.
+ * It also has to strip NaN, and for a long time it did not.
+ *
+ * The previous form was `mix(colour, vec3(0.0), vec3(notEqual(colour, colour)))`, which reads
+ * like a select and is not one: casting the bvec3 to a vec3 selects mix's FLOAT overload, and
+ * that is defined as `x*(1-a) + y*a`. For a NaN lane that evaluates `NaN*0.0 + 0.0*1.0`, which
+ * is still NaN. The bvec3 overload — the one that really is a select — only exists from GLSL ES
+ * 3.00, and these programs compile as 1.00, so the portable answer is a ternary per component.
+ *
+ * This mattered: a NaN reaching the premultiplied cloud buffer erases the sky behind it, which
+ * is what the black speckle was, and the guard that was added for it was on the alpha channel
+ * while the NaN was in the colour.
  */
 vec3 hdrClamp(vec3 colour) {
-  vec3 safe = mix(colour, vec3(0.0), vec3(notEqual(colour, colour)));
-  return min(safe, vec3(60000.0));
+  vec3 safe;
+  safe.x = colour.x == colour.x ? colour.x : 0.0;
+  safe.y = colour.y == colour.y ? colour.y : 0.0;
+  safe.z = colour.z == colour.z ? colour.z : 0.0;
+  // Clamped at both ends. Radiance is never negative, and a negative infinity walked straight
+  // through the old one-sided `min` and came out of the tone mapper as a black speck.
+  return clamp(safe, vec3(0.0), vec3(60000.0));
 }
 
 #endif

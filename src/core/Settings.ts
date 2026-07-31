@@ -31,9 +31,29 @@ export interface GraphicsSettings {
   shadowMapSize: number;
   ssaoEnabled: boolean;
   bloomEnabled: boolean;
+  /**
+   * The per-regime colour grade. On at every preset including Low: it is per-pixel maths inside
+   * a pass that runs anyway, so cutting it buys nothing measurable, and CLAUDE.md names grading
+   * as one of the five things that are the product. The toggle exists so the grade can be
+   * A/B'd against an ungraded frame, not as a performance knob.
+   */
+  gradeEnabled: boolean;
   dofEnabled: boolean;
   godRaysEnabled: boolean;
   motionBlurEnabled: boolean;
+  /**
+   * Off in every preset, and the reason is measured rather than aesthetic.
+   *
+   * The effect displaces the red and blue channels radially by a fraction of a pixel. On a sea
+   * horizon — the one hard, perfectly horizontal, full-width edge in the frame — that lays a
+   * saturated warm hairline along it: 19 display levels of red-minus-blue at the frame edge,
+   * measured across thirteen captures, in every weather, at both noon and golden hour, and
+   * following the effect's own radial law rather than anything in the scene. Bringing that under
+   * one level needs the offset at five per cent of any value that does anything visible at all.
+   *
+   * The knob stays, because it is a lens artefact somebody may want, and because an effect that
+   * is off is genuinely removed from the chain rather than multiplied by zero.
+   */
   chromaticAberrationEnabled: boolean;
   grainEnabled: boolean;
   vignetteEnabled: boolean;
@@ -91,6 +111,7 @@ const PRESETS: Record<QualityPreset, Omit<GraphicsSettings, 'anisotropy'>> = {
     shadowMapSize: 1024,
     ssaoEnabled: false,
     bloomEnabled: true,
+    gradeEnabled: true,
     dofEnabled: false,
     godRaysEnabled: false,
     motionBlurEnabled: false,
@@ -118,10 +139,11 @@ const PRESETS: Record<QualityPreset, Omit<GraphicsSettings, 'anisotropy'>> = {
     shadowMapSize: 1024,
     ssaoEnabled: false,
     bloomEnabled: true,
+    gradeEnabled: true,
     dofEnabled: false,
     godRaysEnabled: true,
     motionBlurEnabled: false,
-    chromaticAberrationEnabled: true,
+    chromaticAberrationEnabled: false,
     grainEnabled: true,
     vignetteEnabled: true,
     antialias: 'smaa',
@@ -145,10 +167,11 @@ const PRESETS: Record<QualityPreset, Omit<GraphicsSettings, 'anisotropy'>> = {
     shadowMapSize: 2048,
     ssaoEnabled: true,
     bloomEnabled: true,
+    gradeEnabled: true,
     dofEnabled: true,
     godRaysEnabled: true,
     motionBlurEnabled: true,
-    chromaticAberrationEnabled: true,
+    chromaticAberrationEnabled: false,
     grainEnabled: true,
     vignetteEnabled: true,
     antialias: 'smaa',
@@ -172,10 +195,11 @@ const PRESETS: Record<QualityPreset, Omit<GraphicsSettings, 'anisotropy'>> = {
     shadowMapSize: 2048,
     ssaoEnabled: true,
     bloomEnabled: true,
+    gradeEnabled: true,
     dofEnabled: true,
     godRaysEnabled: true,
     motionBlurEnabled: true,
-    chromaticAberrationEnabled: true,
+    chromaticAberrationEnabled: false,
     grainEnabled: true,
     vignetteEnabled: true,
     antialias: 'smaa',

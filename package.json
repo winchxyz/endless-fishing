@@ -17,7 +17,9 @@
     "test:run": "vitest run",
     "assets": "tsx scripts/fetch-assets.ts",
     "textures": "tsx scripts/process-textures.ts",
-    "verify": "tsx scripts/verify.ts"
+    "verify": "tsx scripts/verify.ts",
+    "probe": "tsx scripts/probe.ts",
+    "media": "tsx scripts/media.ts"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

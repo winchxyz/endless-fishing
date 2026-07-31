@@ -39,6 +39,9 @@ uniform float uSunIlluminance;
 uniform vec3 uMoonDirection;
 uniform vec3 uMoonColour;
 uniform float uMoonIlluminance;
+/** Angular radii of the two discs, radians. Both are close to a quarter of a degree. */
+uniform float uSunAngularRadius;
+uniform float uMoonAngularRadius;
 uniform samplerCube uEnvironment;
 uniform float uEnvironmentIntensity;
 
@@ -187,6 +190,13 @@ void main() {
   // fading uniformly to transparent.
   foamMask *= smoothstep(0.0, 0.35, foamMask + foamSample.g * 0.35 - 0.18);
 
+  // Past a few kilometres one vertex spans hundreds of metres, so the Jacobian it carries is a
+  // point sample rather than a field, and a whitecap drawn from it would be a whole triangle
+  // wide. Fade the mask out over the range the wave normals are already flattening across. The
+  // energy is not lost: it returns through the roughness term, which is where detail the frame
+  // cannot resolve belongs.
+  foamMask *= 1.0 - smoothstep(2600.0, 6500.0, viewDistance);
+
   // ---------------------------------------------------------------------- reflection
   vec3 R = reflect(-V, N);
   // Never sample below the horizon: at a grazing angle the reflected ray can dip under the
@@ -242,6 +252,7 @@ void main() {
   for (int light = 0; light < 2; light++) {
     vec3 L = light == 0 ? uSunDirection : uMoonDirection;
     vec3 colour = light == 0 ? uSunColour : uMoonColour;
+    float sourceRadius = light == 0 ? uSunAngularRadius : uMoonAngularRadius;
     // Only the sun is shadowed: the mask is rendered from the sun's direction, and moonlight
     // through the same cloud would need its own projection to be anything but wrong.
     float illuminance = (light == 0 ? uSunIlluminance * sunShadow : uMoonIlluminance);
@@ -251,7 +262,22 @@ void main() {
     float nDotL = max(0.0, dot(N, L));
     float nDotH = max(0.0, dot(N, H));
 
-    float D = distributionGGX(nDotH, roughness);
+    // The sun and the moon are half-degree DISCS, not points.
+    //
+    // A specular lobe narrower than the source is physically impossible: it packs the whole of
+    // the source's energy into a highlight smaller than the source itself. On a near-mirror sea
+    // — roughness 0.028 close to the camera — that is a difference of a factor of sixteen, and
+    // it is why the moon's glitter path clipped to white at any exposure that left the rest of
+    // the night visible. Widening alpha by half the source's angular radius and renormalising
+    // the distribution by (alpha/alpha')² spreads the same energy over the solid angle the
+    // source actually occupies. It is Karis' sphere-light construction, and it self-cancels
+    // where it should: at the roughness the sea reaches beyond a kilometre the correction is
+    // under four percent, so the long glitter path is untouched.
+    float alpha = roughness * roughness;
+    float alphaPrime = clamp(alpha + sourceRadius * 0.5, alpha, 1.0);
+    float sphereEnergy = (alpha / alphaPrime) * (alpha / alphaPrime);
+
+    float D = distributionGGX(nDotH, sqrt(alphaPrime)) * sphereEnergy;
     float G = smithGGX(nDotV, max(1e-3, nDotL), roughness);
     vec3 F = fresnelSchlick(max(0.0, dot(H, V)), WATER_F0);
     specular += (D * G / (4.0 * nDotV * max(1e-3, nDotL) + EPS)) * F * colour * illuminance * nDotL;

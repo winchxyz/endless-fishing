@@ -57,6 +57,7 @@ const TOGGLE_CONTROLS: readonly { key: BooleanKey; label: string }[] = [
   { key: 'shadowsEnabled', label: 'Shadows' },
   { key: 'ssaoEnabled', label: 'Ambient occlusion' },
   { key: 'bloomEnabled', label: 'Bloom' },
+  { key: 'gradeEnabled', label: 'Colour grade' },
   { key: 'dofEnabled', label: 'Depth of field' },
   { key: 'godRaysEnabled', label: 'God rays' },
   { key: 'motionBlurEnabled', label: 'Motion blur' },

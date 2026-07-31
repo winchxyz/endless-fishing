@@ -247,7 +247,21 @@ vec3 renderMoon(vec3 direction, out float coverage) {
 void main() {
   vec3 direction = normalize(vViewRay);
 
-  vec3 atmosphere = sampleSkyView(direction);
+  // Below the horizon the dome carries the horizon's own radiance rather than the scattering
+  // table's ground-intersecting half.
+  //
+  // Nothing looks at those directions directly — the sea covers them — but they ARE in the
+  // environment cubemap, and the water's grazing reflection samples that cubemap through a mip
+  // chain several degrees wide. A ground-hit sample is both much darker (a five-kilometre path
+  // instead of a thousand-kilometre one) and much redder (the beam lighting it has come through
+  // the whole atmosphere on the slant), and dragging it up into the reflection is what drew a
+  // hard warm line along the horizon of every frame. The horizon value is what a ray grazing the
+  // sea would actually reflect anyway.
+  //
+  // The epsilon on x is not decoration: without it the nadir direction normalises a zero vector.
+  vec3 skyDirection = normalize(vec3(direction.x, max(direction.y, 0.0), direction.z) + vec3(EPS, 0.0, 0.0));
+
+  vec3 atmosphere = sampleSkyView(skyDirection);
 
   // Flatten the directional gradient under cloud. The zenith sample is a good stand-in for the
   // hemispheric average — it is the one direction whose radiance barely depends on where the
@@ -271,9 +285,17 @@ void main() {
   vec3 sky = atmosphere * mix(vec3(1.0), detail, uHdriWeight * aboveHorizon);
 
   // --- solar disc ---------------------------------------------------------------------------
+  //
+  // The hemisphere test is load-bearing, not defensive. `discCoordinates` projects onto the
+  // plane perpendicular to the body, and for a direction ANTIPODAL to the sun that projection is
+  // exactly the zero vector — so the disc test passes and a second, full-brightness sun is drawn
+  // directly opposite the real one. At dusk that puts it a few degrees above the horizon in the
+  // east, where the transmittance table's clamped edge makes it deep red; it lands in the
+  // environment cubemap and the water reflects it. `renderMoon` has always had the equivalent
+  // guard; the sun never did.
   vec2 sunDisc = discCoordinates(direction, uSunDirection, uSunAngularRadius, uSunFlattening);
   float sunR2 = dot(sunDisc, sunDisc);
-  if (sunR2 < 1.0) {
+  if (sunR2 < 1.0 && dot(direction, uSunDirection) > 0.0) {
     // Extinction along the view ray to the sun, so the disc reddens and dims into the horizon
     // haze exactly as the surrounding sky does.
     float radius = GROUND_RADIUS + max(0.0, uAltitudeKm);

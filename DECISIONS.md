@@ -296,3 +296,49 @@ value stores as `Infinity` — and the bloom pass then averages that infinity do
 and returns a white frame, every pixel. 60000 is roughly four stops above a correctly exposed
 white at any time of day, which is all the headroom ACES and the bloom threshold can use; after
 tone mapping nothing downstream can distinguish it from the true value.
+
+---
+
+## Phase 10 — finishing
+
+### 25. The sea is curved, and it reaches past the horizon
+
+A flat sea plane can never reach the horizon. Its far edge sits at a depression of
+`atan(eyeHeight / radius)` and the true horizon is at `sqrt(2·eyeHeight / R)`; for any finite
+plane the first is the larger, so a wedge of below-horizon sky shows between the water and the
+sky, all the way round the compass. That wedge was the orange band that survived two sessions of
+diagnosis: about one pixel on the High preset, fourteen on Low, eight from the orbit camera, and
+reddened because the light reaching it has come through the whole atmosphere on the slant.
+
+Both halves of the fix are physical. Each ocean vertex is dropped by `d²/2R` in the projected
+position only — `vWorldPosition` stays on the plane, because it feeds the crest-height and
+view-direction terms and a swell eight kilometres out must not read as five metres below mean
+water level. And the clipmap is extended until it covers the horizon of the highest eye the
+camera can reach, which with curvature applied is self-limiting: beyond `sqrt(2·h·R)` the surface
+folds away and hides itself behind nearer water. The mesh's own silhouette is then the horizon.
+It costs about 400k triangles, all of them beyond a kilometre, and no measurable frame time.
+
+### 26. Emissive lamps are metered, not absolute
+
+Everything else in this project is in real units, and the navigation lights are not. A lantern's
+lens sits around 6000 cd/m², which at the exposure a moonless sea needs is two million times
+white; with no lens model in the chain, bloom turns a centimetre of glass into a white disc a
+third of the frame across. Nor does any fixed radiance work, because the exposure between civil
+twilight and midnight moves by a factor of a hundred: a constant that reads as a lamp at one is
+invisible or overwhelming at the other. A photographer with a light in shot stops down for it;
+this frame cannot, because the same image has to keep a sea lit by airglow readable.
+
+So the lamps are given a fixed number of stops over whatever the meter settled on. It is the same
+class of decision as the exposure controller itself, and it is the one place in the renderer where
+a quantity is display-referred by design rather than by accident. The ratios between masthead,
+sidelight and lantern are the real ones.
+
+### 27. README media is committed; captured frames are not
+
+`screenshots/` is git-ignored because captured frames are build output. But a README on GitHub
+cannot fetch anything that is not in the repository, and the brief asks for a media matrix, so
+`docs/media/` is committed — seven stills at 800 px and one animation at 480 px, about a megabyte
+in total. `scripts/media.ts` is the only thing that writes them, so the pictures in the README
+cannot drift from what the renderer actually produces: re-run it and the README is current by
+construction. The asset pipeline's rule that nothing binary is committed is about *downloaded*
+assets, which are still fetched, checksummed and credited rather than vendored.

@@ -15,6 +15,8 @@ import { PostFX } from './render/PostFX.js';
 import { MaterialLibrary } from './render/Materials.js';
 import { Boat } from './entities/Boat.js';
 import { BoatCamera } from './entities/BoatCamera.js';
+import { Wake } from './entities/Wake.js';
+import { AudioBeds } from './world/AudioBeds.js';
 import { Seabed } from './world/Seabed.js';
 import { Underwater } from './world/Underwater.js';
 import { Islands } from './world/Islands.js';
@@ -71,17 +73,14 @@ async function boot(): Promise<void> {
 
   // Weather is the sole writer of the wind, cloud and pressure fields, so it goes in before
   // anything that reads them. Clouds resolve Sky lazily, so both must follow it.
-  // Start in a workable sea.
   //
-  // The synoptic field is deterministic from the seed, and this seed lands it in a Beaufort 9
-  // gale — so every fresh session opened on a storm, with the boat thrown around, the propeller
-  // ventilating on every crest and the rudder in aerated water. That is a legitimate state for
-  // the model to reach and a terrible one to arrive in: the first thing a player should be able
-  // to do is steer.
-  //
-  // Pinning the opening condition, not disabling the system. Clearing the override in the
-  // settings panel hands the sea straight back to the pressure field.
-  engine.settings.world.weatherOverride = 'light-breeze';
+  // Nothing is pinned here any more. The synoptic field used to be seeded wherever the world seed
+  // happened to put it, which for the default seed was a Beaufort 9 gale — the boat thrown about,
+  // the propeller ventilating on every crest, the rudder in aerated water, before the player had
+  // touched a key. That was worked around with a weather override, which meant the whole weather
+  // system was switched off in normal play. `Weather` now seeds its own pressure field under a
+  // ridge whatever the seed is, so the session opens in a workable sea and every state is still
+  // reachable as the field evolves.
   const weather = new Weather(engine);
   engine.add(weather);
   const clouds = new Clouds(engine);
@@ -117,6 +116,14 @@ async function boot(): Promise<void> {
   loading.set(0.55, 'Building the boat');
   const boat = await Boat.create(engine, ocean, materials);
   engine.add(boat);
+
+  // What the boat leaves behind it. This is not decoration: the camera is locked to the hull and
+  // the ocean clipmap is centred on the camera, so an open sea with nothing fixed in it looks
+  // identical whether the boat is stopped or doing eight knots. The wake and the bow spray are
+  // what make the throttle mean something on screen. Both are custom ShaderMaterials shading from
+  // `worldlight.glsl`, so — unlike the hull's MeshStandardMaterial — they must NOT be enrolled
+  // with the cascaded shadow map.
+  engine.add(new Wake(engine, ocean, boat));
 
   const fish = new Fish(engine, ocean, seabed, boat);
   fish.setOptics(underwater);
@@ -165,8 +172,21 @@ async function boot(): Promise<void> {
   const uiRoot = document.getElementById('ui-root');
   if (uiRoot === null) throw new Error('#ui-root is missing from index.html');
   const ui = new UiSystem(uiRoot, engine.settings);
-  ui.attach({ boat, weather, fishing });
+  // The UI owns the session as well as the overlay: it reads the save on construction, applies
+  // the stored upgrades to `progression` here, writes the journal and the purse when a fish is
+  // landed, and schedules the save. Everything on this line has to be attached before the first
+  // frame or a landing in that frame would be recorded against an empty ledger.
+  ui.attach({ boat, weather, fishing, progression });
   engine.add(ui);
+
+  // Sound, last of the world systems and lowest priority in the frame, so every level describes
+  // the frame that was just simulated. It stays silent and allocation-free until the first
+  // pointer or key event: a Web Audio context created without a user gesture is suspended by
+  // every browser, and resuming one that was never allowed prints a console warning, which
+  // `npm run verify` treats as a build failure.
+  engine.add(
+    new AudioBeds(engine, { boat, underwater, weather, tackle: fishing }),
+  );
 
   installDebugApi(engine);
 

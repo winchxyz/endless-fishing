@@ -2,20 +2,11 @@
 
 **For a fresh session. Read this file first, then `CLAUDE.md`, then `DECISIONS.md`.**
 
+The ten bugs the previous handoff listed are closed. What follows is what you need to know to
+work on this repository, not a to-do list — for what is still open, see the end of
+`PROGRESS.md`.
+
 ---
-
-## Your instructions
-
-The owner wants a **playable, production-ready game**. Not a report, not a list of options.
-
-- **Do not ask for confirmation.** Fix things. Deploy. Report when it is actually finished.
-- **Verify every visual change on a rendered frame before deploying it.** The previous session
-  deployed a shader change without looking at it and made the sky worse. `scripts/probe.ts`
-  renders a frame and writes `screenshots/probe.png` in about 90 seconds. Look at it. Every time.
-- **Do not trust `npm run verify`.** Its logs have disagreed with the screenshot timestamps.
-  Use `scripts/probe.ts`.
-- After any subagent failure, run `git status` before assuming its work was lost — agents write
-  files as they go and usually survive an API error.
 
 ## Live site
 
@@ -37,102 +28,43 @@ scope but not `workflow`, so GitHub rejects any push containing it. To enable pr
 
 ```bash
 npm install && npm run assets && npm run textures
-npm run test:run     # 130 tests, all passing
+npm run test:run     # 199 tests
+npm run build        # zero errors, zero warnings
 npm run dev
-npx tsx scripts/probe.ts "2026-06-21T16:10:00Z"   # renders screenshots/probe.png
 ```
 
----
+## Looking at frames
 
-## OPEN BUGS — this is the actual work
+**Verify every visual change on a rendered frame before you call it done.** `scripts/probe.ts` is
+the tool; it is worth reading its flags before you start.
 
-### 1. Orange band across the horizon. Not diagnosed. Highest priority.
+```bash
+npx tsx scripts/probe.ts --times=2026-06-21T16:10:00Z,2026-06-21T21:30:00Z --tag=look
+npx tsx scripts/probe.ts --hold=w --settle=40000 --tag=wake        # under way
+npx tsx scripts/probe.ts --graphics='{"bloomEnabled":false}'       # one effect at a time
+npx tsx scripts/probe.ts --weather=storm --at=64.15,-21.94         # somewhere else, in weather
+```
 
-A bright orange/red horizontal line sits exactly on the horizon, worst at night. Two failed
-attempts, so do not repeat them:
+It boots the dev server once, captures every moment you list inside a single browser session, and
+writes for each one the frame, a **4× zoom of the horizon**, and a JSON line carrying the
+photometry, the helm and the frame stats. A one-pixel artefact on a 1080-line frame is invisible
+in a thumbnail and obvious in that crop, and that is exactly how the horizon band survived two
+sessions.
 
-- **Not** the cloud layer. It appeared in night frames taken before clouds, islands or props
-  existed at all.
-- **Not** HDRI light pollution. The night panoramas do carry sodium glow on the horizon and that
-  is now faded out after dark — the band survived, so that was not it.
+Three things that will cost you time if you do not know them:
 
-Untested lead: in `ocean.frag` the reflection ray is clamped with `R.y = max(R.y, 0.008)` so a
-grazing view samples the environment probe's horizon row. If the probe's lowest row holds a warm
-value (the sky's own horizon, or the sun-disc extinction term bleeding in), every grazing pixel
-would reflect it as a hard line. Check what the probe cubemap actually contains near its
-equator. Also check `sky.frag`'s solar-disc block: it applies
-`sampleTransmittance(uTransmittanceLut, radius, uSunDirection.y)` with a *negative* sun altitude
-at night, which is outside the LUT's meaningful domain.
-
-### 2. Moon glitter path still clips to white
-
-Improved but not fixed. Night exposure went 13.6 → 5.5 by giving the meter a specular allowance
-(`SPECULAR_GAIN` in `Sky.updateExposure`). The highlight still blows. Either raise the gain, or
-better, widen the GGX roughness floor at night in `ocean.frag` — the moon is a 0.5° disc, not a
-point, and the specular lobe is currently narrower than the source.
-
-### 3. Motion is invisible — this is why "WASD doesn't work"
-
-The boat **does** move; the HUD speed responds (0.0 → 2.0 kn). But the camera is locked to the
-boat, the ocean clipmap is camera-centred, and there are no fixed references, so nothing appears
-to happen. The owner reads this as broken controls, and they are right that it is broken — as a
-game, not as an input system.
-
-Fix by adding what is missing: **a wake** (the brief asks for diverging Kelvin V-waves scaled by
-speed), **bow spray**, and visible fixed landmarks. `Wake` was never written. This is the single
-biggest gap between what exists and something that feels like a game.
-
-### 4. No audio at all
-
-`src/core/Audio.ts` is a complete Web Audio engine with a synthesis toolkit (noise buffers, FM
-voices, procedural impulse-response reverb, positional panners) and it is **never instantiated**.
-`AudioEngine.create(settings)` returns `AudioEngine | null`.
-
-`src/world/AudioBeds.ts` — the system that would drive it from `WorldState` — **does not exist**;
-the agent writing it was killed before it got there. It needs writing: wave noise scaled by
-`significantWaveHeight` and `beaufort`, engine pitched by RPM, hull slap from the boat's vertical
-acceleration, rain from `precipitation`, thunder delayed by real distance from
-`weather.onLightning`, a low-pass when `underwater.isSubmerged`.
-
-### 5. Save does not persist
-
-`src/gameplay/Save.ts` is written and tested; nothing calls it. Progression, inventory and the
-journal are all lost on reload.
-
-### 6. Catch card never appears
-
-`CatchCard` is constructed but nothing watches `fishing.state === 'landed'` to show it with
-`fishing.lastCatch`. Fields map 1:1 onto `CatchCardData` except `personalBest`/`firstCatch`,
-which only the journal knows.
-
-### 7. NaN in the cloud march
-
-Symptom is patched (`ef_safeTransmittance` guards the buffer alpha at both write and read,
-because `saturate(NaN)` collapses to 0 and the premultiplied blend then multiplies the sky by
-zero — that was the black speckle). The march still produces a NaN at grazing angles. Root cause
-unfound.
-
-### 8. Cloud layer bands at the horizon
-
-`tFar = min(ef_shellExit(...), CLOUD_MAX_DISTANCE_M)` — the clamp bites at one elevation all the
-way round the compass, so it lands as a hard horizontal edge. A previous attempt to fade the
-layer where the clamp bites was reverted because it was deployed unverified and looked worse.
-The diagnosis was right; the fix needs doing with a frame in hand.
-
-### 9. Weather opens pinned
-
-`main.ts` sets `settings.world.weatherOverride = 'light-breeze'` because the synoptic field is
-deterministic and this seed lands it in a Beaufort 9 gale, which made the game unplayable on
-load. That is a workaround. The proper fix is to seed the pressure field in a benign state and
-let it evolve, so all eight weather states are reachable in normal play.
-
-### 10. Not implemented from the brief
-
-The per-regime LUT colour grade (§10) — `PostFX` has exposure, bloom, ACES, vignette, grain, CA
-and SMAA, but **no grade**, and no GTAO, DoF, god rays or motion blur. Phase 11 (LOD tuning,
-profiling) never happened. README has one screenshot, not the required matrix plus a storm GIF.
-
----
+1. **Do not edit source while a probe is running.** Vite pushes a full reload, the page loses the
+   time override and every held key, and you get a frame of a stationary boat at the wrong hour
+   with no indication anything went wrong. Two rounds of analysis were spent on frames ruined
+   this way.
+2. **The probe claims port 5199 with `--strictPort`.** Vite silently walks to the next free port
+   when its default is taken, and a probe that connects to whatever else is on 5173 will happily
+   photograph a completely different working tree. That happened.
+3. **Read the pixels, do not eyeball them.**
+   `npx tsx scripts/inspect.ts rows <png> <y0> <y1> <x0> <x1>` prints the mean RGB of each row
+   over a column range, and `... crop <png> <x> <y> <w> <h> <scale> <out>` magnifies a region
+   with a nearest-neighbour filter. The horizon band was finally identified from a table of twenty
+   numbers, after two sessions of looking at pictures had failed.
 
 ## What is solid — do not re-derive it
 
@@ -140,13 +72,12 @@ profiling) never happened. README has one screenshot, not the required matrix pl
   event matches **to the minute** at Tel Aviv and at Reykjavík on the winter solstice. 52 tests.
   Reproduce: `npx tsx scripts/almanac-check.ts 2026-07-30 32.08 34.78 3`.
 - **Ocean.** CPU/GPU wave agreement **0.0059 mm** over 4096 points, measured on the real driver.
-  The whole sea is one draw call.
 - **Sky photometry.** 2784 cd/m² zenith, 8424 horizon at solar noon. Real values.
-- **Buoyancy.** Two real defects found and corrected analytically (probe quadrature losing two
-  thirds of the righting moment; buoyancy at the keel trimming the hull 7° by the head).
-- **Performance.** 60 FPS, ~150 draw calls against a 300 budget, on an RTX 4070.
-
----
+- **Buoyancy.** Two real defects found and corrected analytically.
+- **Exposure.** Metered from the sky that was actually rendered, plus the night floor the shader
+  adds on top of it, with a hard stop at 6e-3 lux because dark adaptation saturates. Do not
+  replace any of it with a curve; an analytic fit was two stops out at civil dawn.
+- **Performance.** 60 FPS, 157 draw calls against a 300 budget, on an RTX 4070.
 
 ## Gotchas that cost hours. Read these.
 
@@ -154,30 +85,35 @@ profiling) never happened. README has one screenshot, not the required matrix pl
    define your own — use `ef_luminance` from `lib/constants.glsl`.
 2. three defines `saturate` as a **macro**. A same-named function is a syntax error pointing at
    your definition rather than at the collision.
-3. Physical radiance must pass through `hdrClamp()`. The sun disc is 1.6×10⁹ cd/m²; half-float
+3. `sample` is a **reserved word** in GLSL ES, and the error it produces points at the line
+   *after* the declaration.
+4. Physical radiance must pass through `hdrClamp()`. The sun disc is 1.6×10⁹ cd/m²; half-float
    tops out at 65504 and stores `Infinity`, which bloom then averages across the whole frame.
-4. **A convolution effect reads the pass input buffer, not the accumulated colour.** Bloom after
+5. **`mix(x, y, a)` with a float weight is arithmetic, not a select.** `mix(NaN, 0.0, 1.0)`
+   evaluates `NaN*0.0` and is still NaN. The bvec overload that really is a select only exists
+   from GLSL ES 3.00, and these programs compile as 1.00. This cost a whole session: the NaN
+   guard that was added for the cloud speckle was on the wrong channel *and* would not have
+   worked on the right one.
+6. **A convolution effect reads the pass input buffer, not the accumulated colour.** Bloom after
    exposure *in the same pass* still sees raw radiance. Exposure needs its own pass, and two
    convolution effects cannot share a pass — pmndrs throws inside the constructor, killing boot
    with no obvious link to the cause.
-5. `ShaderMaterial` does not apply three's tone mapping. The composer owns it.
-6. **CSM registration cuts both ways.** `MeshStandardMaterial` (boat, fishing rod) **must** call
+7. `ShaderMaterial` does not apply three's tone mapping. The composer owns it.
+8. **CSM registration cuts both ways.** `MeshStandardMaterial` (boat, fishing rod) **must** call
    `sky.registerShadowMaterial()` or it is lit by every cascade at once. Custom `ShaderMaterial`s
-   shading from the ephemeris via `worldlight.glsl` (ocean, fish, seabed, islands, props, birds)
-   **must not**. 3–4 stops of error in either direction.
-7. Texture fetches inside loops need `texture2DLodEXT(tex, uv, 0.0)`.
-8. The exposure meter reads back from the sky-view LUT — measured, not modelled. An analytic fit
-   was two stops out at civil dawn. Do not replace it with a curve.
-9. Eye adaptation resets on a clock jump; a time override is a cut, not a sunset.
-10. **vitest has no `vite-plugin-glsl`.** A test cannot transitively import anything that imports
-    a `.vert`. That is why `WorldField.ts` is separate from `Islands.ts`, and why
-    `test/fish.test.ts` mocks its shader modules.
-11. **Draw order matters and is easy to get wrong.** The underwater murk shell at `renderOrder
-    -500` sits over the sky (−1000) and stars (−900). Showing it for any submersion above zero
-    blacked out every night frame. Anything full-screen needs its visibility condition checked
-    against a real frame.
-
----
+   shading from the ephemeris via `worldlight.glsl` (ocean, fish, seabed, islands, props, birds,
+   wake, spray) **must not**. 3–4 stops of error in either direction.
+9. Texture fetches inside loops need `texture2DLodEXT(tex, uv, 0.0)`.
+10. Eye adaptation resets on a clock jump; a time override is a cut, not a sunset.
+11. **vitest has no `vite-plugin-glsl`.** A test cannot transitively import anything that imports
+    a `.vert`. That is why `WorldField.ts` is separate from `Islands.ts`, `AudioCurves.ts` from
+    `AudioBeds.ts`, and `ColourGrade.ts` from `PostFX.ts`.
+12. **Draw order matters and is easy to get wrong.** The underwater murk shell at `renderOrder
+    -500` sits over the sky (−1000) and stars (−900). Anything full-screen needs its visibility
+    condition checked against a real frame.
+13. **A point source does not belong in the environment probe.** One star occupies a whole texel
+    of a 128-pixel cube face — five orders of magnitude of over-representation — and the water
+    reflects it off every wave facet whose normal happens to point at it.
 
 ## Repository map
 
@@ -187,16 +123,14 @@ src/math/      pure — Gerstner (mirrored by shaders/lib/gerstner.glsl), Noise,
 src/core/      Engine, Loop, Input, Time, Settings, WorldState, ResourceManager, Audio, DebugApi
 src/world/     Sky, Atmosphere, SkyLibrary, StarField, Ocean, Weather, Clouds, Tides, Chunks,
                Islands, WorldField, Vegetation, TerrainMesh, Props, PropGeometry, Seabed,
-               Underwater
-src/entities/  Boat, BoatGeometry, BoatCamera, Buoyancy, Bobber, FishingLine, Fish,
-               FishGeometry, Birds, SeaLifeGeometry            (Wake MISSING)
+               Underwater, AudioBeds, AudioCurves
+src/entities/  Boat, BoatGeometry, BoatCamera, Buoyancy, Wake, Bobber, FishingLine, Fish,
+               FishGeometry, Birds, SeaLifeGeometry
 src/gameplay/  Species, BiteModel, FishingSystem, FightModel, Progression, Inventory, Save,
                UiSystem
-src/render/    PostFX, Materials, EnvironmentProbe, ProceduralTextures, WorldLighting,
-               GerstnerParity, FullScreenPass
+src/render/    PostFX, ColourGrade, Materials, EnvironmentProbe, ProceduralTextures,
+               WorldLighting, GerstnerParity, FullScreenPass
 src/ui/        HUD, CatchCard, Journal, SettingsPanel, LoadingScreen — never imports three
 src/shaders/   sky/ ocean/ clouds/ fish/ underwater/ terrain/ world/ entities/ line/ post/ lib/
 scripts/       fetch-assets, process-textures, verify, probe, almanac-check
 ```
-
-Everything is wired into `main.ts` except audio, save and the catch-card trigger.

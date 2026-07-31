@@ -45,6 +45,18 @@ const BASE_CELL_SIZE = 0.55;
 /** How far the seabed is below mean water level in open water, metres. */
 const OPEN_WATER_DEPTH = 55;
 
+/**
+ * Radius the clipmap must reach, metres, whatever the quality preset says.
+ *
+ * The sea has to extend past the horizon or a wedge of below-horizon sky shows between the water
+ * and the sky — the horizon band. With curvature applied in the vertex shader the surface folds
+ * away beyond sqrt(2 * eyeHeight * R), so "past the horizon" means past the horizon of the
+ * highest eye the camera can reach: the orbit camera tops out around twenty metres, which puts
+ * its horizon at sixteen kilometres. Rings beyond that are hidden behind nearer water and cost
+ * nothing but a handful of triangles, whereas one ring short is a line across every frame.
+ */
+const HORIZON_REACH_M = 16000;
+
 export class Ocean implements System {
   readonly name = 'ocean';
   readonly priority = 10;
@@ -107,6 +119,8 @@ export class Ocean implements System {
         uMoonDirection: { value: new Vector3(0, -1, 0) },
         uMoonColour: { value: new Color(0.72, 0.8, 1) },
         uMoonIlluminance: { value: 0 },
+        uSunAngularRadius: { value: 0.00465 },
+        uMoonAngularRadius: { value: 0.00452 },
         uEnvironment: { value: null },
         uEnvironmentIntensity: { value: 1 },
         uDetailNormal: { value: this.detailNormal },
@@ -130,7 +144,11 @@ export class Ocean implements System {
       depthWrite: true,
     });
 
-    this.geometry = buildClipmap(graphics.oceanGridResolution, graphics.oceanRings, BASE_CELL_SIZE);
+    this.geometry = buildClipmap(
+      graphics.oceanGridResolution,
+      ringsForHorizon(graphics.oceanGridResolution, graphics.oceanRings),
+      BASE_CELL_SIZE,
+    );
     this.mesh = new Mesh(this.geometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 0;
@@ -258,6 +276,12 @@ export class Ocean implements System {
       // return, which is the quantity the specular term below actually wants.
       setNumber(uniforms, 'uSunIlluminance', (ephemeris.sunIlluminanceLux / Math.PI) * (1 - world.cloudiness * 0.9));
       setNumber(uniforms, 'uMoonIlluminance', ephemeris.moonIlluminanceLux / Math.PI);
+      // The true apparent radii, which vary by a couple of percent over a year for the sun and
+      // by twelve for the moon. The specular lobe is widened to match them, so feeding it the
+      // real numbers rather than an average costs nothing and keeps a perigee moon's glitter
+      // path the size it should be.
+      setNumber(uniforms, 'uSunAngularRadius', ephemeris.sun.angularRadius);
+      setNumber(uniforms, 'uMoonAngularRadius', ephemeris.moon.angularRadius);
     }
   }
 
@@ -316,7 +340,11 @@ export class Ocean implements System {
     const graphics = engine.settings.graphics;
     this.refractionScale = graphics.refractionScale;
 
-    const rebuilt = buildClipmap(graphics.oceanGridResolution, graphics.oceanRings, BASE_CELL_SIZE);
+    const rebuilt = buildClipmap(
+      graphics.oceanGridResolution,
+      ringsForHorizon(graphics.oceanGridResolution, graphics.oceanRings),
+      BASE_CELL_SIZE,
+    );
     this.geometry.dispose();
     this.geometry = rebuilt;
     this.mesh.geometry = rebuilt;
@@ -386,6 +414,21 @@ function setNumber(
 ): void {
   const uniform = uniforms[name];
   if (uniform !== undefined) uniform.value = value;
+}
+
+/**
+ * Ring count needed to cover `HORIZON_REACH_M`, never fewer than the preset asks for.
+ *
+ * Each level doubles the cell size, so the half-extent doubles too and the count grows
+ * logarithmically: the Low preset needs six more rings than its five, and Ultra needs two. Those
+ * rings are the same vertex count as any other — they are simply larger — so the cost is a fixed
+ * number of triangles per ring rather than anything proportional to the area covered.
+ */
+function ringsForHorizon(resolution: number, presetRings: number): number {
+  const cellsPerSide = Math.max(16, Math.floor(resolution / 2) * 2);
+  let rings = Math.max(1, presetRings);
+  while ((cellsPerSide * BASE_CELL_SIZE * 2 ** (rings - 1)) / 2 < HORIZON_REACH_M) rings += 1;
+  return rings;
 }
 
 function angleDelta(a: number, b: number): number {

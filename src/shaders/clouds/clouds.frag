@@ -219,7 +219,11 @@ float ef_cloudDensity(vec3 world, float h, float detailStrength) {
 
   float cover = uCoverage * (1.0 + uAnvil * smoothstep(0.58, 0.86, h) * 0.5);
   cover = saturate(cover * mix(0.62, 1.38, regional));
-  if (cover <= 0.0) return 0.0;
+  // Not `<= 0.0`. The density remap below divides by `1.0 - (1.0 - cover)`, and in float32
+  // `1.0 - cover` rounds to exactly 1.0 for every cover under 2⁻²⁵ — a window the coverage walks
+  // through every time the weather damps the sky clear. Below a hundred-thousandth of a sky
+  // there is no cloud to draw, so leaving early is both the fix and the right answer.
+  if (cover < 1e-5) return 0.0;
 
   float worley = shape.g * 0.625 + shape.b * 0.25 + shape.a * 0.125;
   float base = remap(shape.r, worley - 1.0, 1.0, 0.0, 1.0);
@@ -277,8 +281,26 @@ uniform float uPrecipitation;
 uniform float uLightningFlash;
 uniform vec3 uLightningPosition;
 
-/** Beyond this the deck is a band a few pixels high and stepping through it buys nothing. */
-const float CLOUD_MAX_DISTANCE_M = 62000.0;
+/**
+ * Longest interval the march will cover, metres — a limit on the SPAN, not on the distance.
+ *
+ * The budget has to be capped somewhere: a ray a degree above the horizon runs a hundred and
+ * thirty kilometres before it even reaches the cloud base, and there is no sense spending steps
+ * on the empty air in front of it.
+ *
+ * Capping the far distance instead, which is what this used to do, is a limit on *coverage*: it
+ * culls the entire deck below the elevation at which the near edge passes the limit. For a
+ * cumulus base at 950 m and an eye at 2 m that elevation is 0.597 degrees, and because the march
+ * origin sits on the vertical axis it is the same elevation at every azimuth — a horizontal edge
+ * right round the compass, with no cloud below it and, one pixel higher, a deck already thick
+ * enough to be opaque. It also slid up and down as the profile damped between archetypes, which
+ * is why it read as something moving rather than as a constant.
+ *
+ * Capping the span keeps `tFar > tNear` unconditionally, so nothing is ever culled and the deck
+ * simply recedes into its own aerial perspective. It is cheaper at the horizon too: the existing
+ * transmittance break ends those rays after a step or two.
+ */
+const float CLOUD_MAX_SPAN_M = 30000.0;
 /** Peak in-cloud radiance from a stroke, cd/m². Enough to read as daylight for one frame. */
 const vec3 LIGHTNING_RADIANCE = vec3(0.86, 0.90, 1.0) * 120000.0;
 
@@ -326,7 +348,18 @@ float ef_lightDepth(vec3 world, vec3 L) {
   for (int i = 0; i < CLOUD_LIGHT_STEPS; i++) {
     vec3 q = world + L * t;
     float h = (q.y - uCloudBaseM) * uInvThickness;
-    if (h > 0.0 && h < 1.0) tau += ef_cloudDensity(q, h, 0.0) * stepSize;
+    // The density is tested, not only the height. This is the one consumer of
+    // `ef_cloudDensity` in the file that did not, and it is therefore the one route by which a
+    // bad sample reaches the optical depth — and from there the phase integral, the accumulated
+    // colour, and a premultiplied buffer that erases the sky behind whatever pixel it lands on.
+    // The view march has always had the equivalent test; this restores the invariant that `tau`
+    // is a sum of finite non-negative terms.
+    if (h > 0.0 && h < 1.0) {
+      // Not named `sample`: that is a reserved word in GLSL ES and the error it produces points
+      // at the line after the declaration.
+      float stepDensity = ef_cloudDensity(q, h, 0.0);
+      if (stepDensity > 0.0) tau += stepDensity * stepSize;
+    }
     t += stepSize;
     // The cone widens as it goes. Further along the light ray one sample stands for more volume,
     // and stepping uniformly out there spends the budget where nothing can be seen.
@@ -371,7 +404,7 @@ void main() {
   }
 
   float tNear = max(0.0, ef_shellExit(origin, dir, uCloudBaseM));
-  float tFar = min(ef_shellExit(origin, dir, uCloudTopM), CLOUD_MAX_DISTANCE_M);
+  float tFar = min(ef_shellExit(origin, dir, uCloudTopM), tNear + CLOUD_MAX_SPAN_M);
   if (tFar <= tNear) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;

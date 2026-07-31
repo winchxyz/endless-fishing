@@ -1,5 +1,5 @@
 import './hud.css';
-import { formatMass, formatLength, type CatchRarity } from './CatchCard.js';
+import { formatMass, formatLength, formatMoney, type CatchRarity } from './CatchCard.js';
 
 /**
  * The species log.
@@ -38,6 +38,7 @@ const MARKUP = `
   <header class="overlay__head">
     <h2 class="overlay__title">Journal</h2>
     <span class="hud-row__value" data-tally></span>
+    <span class="hud-row__value" data-purse></span>
     <button type="button" class="overlay__close" data-close>Close</button>
   </header>
   <div class="overlay__body"><div class="journal__grid" data-grid></div></div>
@@ -70,6 +71,7 @@ export class Journal {
   private readonly root: HTMLElement;
   private readonly grid: HTMLElement;
   private readonly tally: HTMLElement;
+  private readonly purse: HTMLElement;
   private species: readonly JournalSpecies[] = [];
   private records = new Map<string, JournalRecord>();
 
@@ -94,12 +96,19 @@ export class Journal {
 
     const grid = root.querySelector('[data-grid]');
     const tally = root.querySelector('[data-tally]');
+    const purse = root.querySelector('[data-purse]');
     const close = root.querySelector('[data-close]');
-    if (!(grid instanceof HTMLElement) || !(tally instanceof HTMLElement) || close === null) {
+    if (
+      !(grid instanceof HTMLElement) ||
+      !(tally instanceof HTMLElement) ||
+      !(purse instanceof HTMLElement) ||
+      close === null
+    ) {
       throw new Error('Journal markup is incomplete');
     }
     this.grid = grid;
     this.tally = tally;
+    this.purse = purse;
 
     close.addEventListener('click', () => this.close());
     root.addEventListener('pointerdown', this.onPointerDown);
@@ -116,6 +125,18 @@ export class Journal {
   setRecords(records: readonly JournalRecord[]): void {
     this.records = new Map(records.map((record) => [record.speciesId, record]));
     this.render();
+  }
+
+  /**
+   * The running totals across every species, beside the per-species tally.
+   *
+   * Separate from `setRecords` and deliberately not a re-render: the purse moves on every
+   * single fish while the grid only changes when a row does, and rebuilding forty entries to
+   * write one number would be the expensive half of a cheap update.
+   */
+  setSummary(money: number, totalCatches: number): void {
+    this.purse.textContent =
+      totalCatches === 0 ? '' : `${totalCatches} landed · ${formatMoney(money)} earned`;
   }
 
   get isOpen(): boolean {

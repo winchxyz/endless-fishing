@@ -102,6 +102,17 @@ export const WEATHER_STATES: readonly WeatherStateDescriptor[] = [
   { name: 'storm', family: 'storm', beaufortLow: 8, beaufortHigh: 10, cloudiness: 0.98, precipitation: 0.85, visibilityM: 1400, label: 'Storm' },
 ];
 
+/**
+ * The states the storm warning is about.
+ *
+ * The warning and the state label on the HUD have to be the same claim, or the player is being
+ * told two different things about one sky. So severity is a property of the *named state* and
+ * not a second set of thresholds on wind and cloud that could drift out of agreement with it.
+ */
+export function isSevereState(name: WeatherStateName): boolean {
+  return name === 'storm' || name === 'thunderstorm';
+}
+
 // ------------------------------------------------------------------------------ field constants
 
 /** Real seconds per hour of synoptic time. */
@@ -135,7 +146,113 @@ const TREND_CLOUD_GAIN = 0.34;
 const BASE_TEMPERATURE_C = 3.5;
 const TEMPERATURE_SPAN_C = 12.5;
 
+// ------------------------------------------------------------------------------ the sea's memory
+
+const GRAVITY = 9.80665;
+/**
+ * The two numbers that make the sea lag the wind.
+ *
+ * A sea does not have a height; it has a history. `gX/U² = 2.28×10⁴` is the dimensionless fetch
+ * at which a wind sea stops growing — the Pierson–Moskowitz limit — and `gt/U = 7.15×10⁴` is the
+ * dimensionless duration it takes to get there (Shore Protection Manual, 1984). Divide one by
+ * the other and out falls the rate at which the *equivalent* fetch accumulates while the wind
+ * blows: about a third of the wind speed, which is also roughly the group velocity of the
+ * dominant wave, as it should be.
+ *
+ * This is the whole reason `fetchKm` exists and is carried rather than derived. JONSWAP takes
+ * wind and fetch; the wind is the atmosphere's business and moves in seconds, and the fetch is
+ * the sea's memory and moves in hours. Force 3 to force 8 is a ceiling that rises by an order of
+ * magnitude, and the sea has to walk up to it — a quarter of an hour of real play at force 6,
+ * three quarters at force 9. Take this out and the significant wave height tracks the wind
+ * instantaneously, which is the single most obvious way for an ocean to look computed.
+ */
+const FULLY_DEVELOPED_FETCH = 22800;
+const FULLY_DEVELOPED_DURATION = 71500;
+/** Kilometres of equivalent fetch gained per synoptic second, per m/s of wind. */
+const FETCH_GROWTH_FRACTION = FULLY_DEVELOPED_FETCH / FULLY_DEVELOPED_DURATION;
+/**
+ * Synoptic hours for the excess above the developed fetch to fall by 1/e once the wind eases.
+ *
+ * Longer than the build, and deliberately: a sea that is no longer being fed is not destroyed,
+ * it disperses. The swell of a gale outlives the gale by most of a day at sea, and by most of an
+ * hour of play here.
+ */
+const FETCH_DECAY_HOURS = 36;
+const MIN_FETCH_KM = 25;
+const MAX_FETCH_KM = 700;
+
+/**
+ * Fetch at which a sea under this wind stops growing, km.
+ *
+ * Exported because it is the ceiling every statement about the sea's lag is made against, and a
+ * test that restated it would be testing its own copy.
+ */
+export function developedFetchKm(windSpeed: number): number {
+  const metres = (FULLY_DEVELOPED_FETCH * windSpeed * windSpeed) / GRAVITY;
+  return clamp(metres * 1e-3, MIN_FETCH_KM, MAX_FETCH_KM);
+}
+
 const DEG_TO_RAD = Math.PI / 180;
+
+/**
+ * Rates at which the visible field closes on the target it is chasing, per real second.
+ *
+ * These are the reason the state sequence is physically ordered — a damped quantity cannot skip
+ * a value on its way to another one — and they are named rather than written inline because
+ * `forecast` integrates the very same numbers forward. A forecast running different time
+ * constants from the weather it predicts would be a second model, and it would be wrong in
+ * precisely the way that is hardest to notice.
+ */
+const WIND_RATE = 0.035;
+const TREND_RATE = 0.05;
+const CLOUD_RATE = 0.006;
+const PRECIPITATION_RATE = 0.01;
+const FOG_RATE = 0.008;
+const INSTABILITY_RATE = 0.008;
+const TEMPERATURE_RATE = 0.005;
+const VISIBILITY_RATE = 0.02;
+
+// ------------------------------------------------------------------------- the opening state
+
+/**
+ * What "a settled opening" means, as numbers.
+ *
+ * The world has to begin *somewhere* in the pressure field, and where it begins is a choice
+ * this model gets to make rather than an accident of which seed was typed in. It begins under a
+ * ridge: pressure above the mean, a slack gradient across it, and therefore a working breeze.
+ *
+ * Force 3 is the target because that is the sea the boat was designed around — enough for the
+ * hull to move and for the water to have shape, not enough for the propeller to ventilate on
+ * every crest. The band either side is forces 2 to 4, which is the whole of "fishable".
+ */
+const OPENING_WIND_TARGET_MS = 4.2;
+const OPENING_WIND_MIN_MS = 1.8;
+const OPENING_WIND_MAX_MS = 6.6;
+/** Synoptic hours the opening has to stay settled for. Six is about seven real minutes. */
+const OPENING_SETTLED_HOURS = 6;
+const OPENING_SETTLED_PROBES = 4;
+
+/** Origins tried at construction, then rounds of local refinement around the best of them. */
+const ORIGIN_CANDIDATES = 384;
+const ORIGIN_REFINEMENTS = 5;
+const ORIGIN_REFINE_SAMPLES = 24;
+/** Half-width of the coarse search box, in metres of ocean and in synoptic hours. */
+const ORIGIN_SPAN_M = SYNOPTIC_SCALE_KM * 1000 * 2;
+const ORIGIN_SPAN_HOURS = EVOLUTION_HOURS * 6;
+/** Fraction of the coarse box the first refinement round reaches, and its per-round shrink. */
+const ORIGIN_REFINE_SPAN = 0.06;
+const ORIGIN_REFINE_SHRINK = 0.55;
+/**
+ * Real seconds after construction during which a change of latitude re-chooses the opening.
+ *
+ * The player's position arrives asynchronously from the browser, usually before the first frame
+ * but not reliably so, and the Coriolis parameter it sets is exactly what turns a pressure
+ * gradient into a wind — the same isobars are three times the wind at 16° that they are at 55°.
+ * A late fix would otherwise land the opening sea outside the band the search was asked to
+ * guarantee. Past this window the boat is under way and re-seeding would be a cut, so a
+ * latitude change is absorbed by the gain from then on, as any other change of latitude is.
+ */
+const ORIGIN_RESEED_WINDOW_S = 25;
 
 // ------------------------------------------------------------------------------ sample
 
@@ -309,11 +426,27 @@ function copySample(from: SynopticSample, to: SynopticSample): void {
   to.visibilityM = from.visibilityM;
 }
 
-function angleDelta(a: number, b: number): number {
-  let d = (a - b) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d <= -Math.PI) d += Math.PI * 2;
-  return d;
+
+/**
+ * Ease one sample towards another over `dtSeconds` of real time.
+ *
+ * The wind *vector* is damped, never the speed and the bearing separately: damping an angle
+ * through the ±π wrap is how you get a gust that spins the flag right round. Pressure is copied
+ * rather than damped because a barometer has no inertia — the trend it is read from does.
+ */
+function relax(current: SynopticSample, target: SynopticSample, dtSeconds: number): void {
+  current.windX = damp(current.windX, target.windX, WIND_RATE, dtSeconds);
+  current.windZ = damp(current.windZ, target.windZ, WIND_RATE, dtSeconds);
+  current.windSpeed = Math.hypot(current.windX, current.windZ);
+  current.windDirection = Math.atan2(current.windX, -current.windZ);
+  current.pressureHpa = target.pressureHpa;
+  current.trendHpaPerHour = damp(current.trendHpaPerHour, target.trendHpaPerHour, TREND_RATE, dtSeconds);
+  current.cloudiness = damp(current.cloudiness, target.cloudiness, CLOUD_RATE, dtSeconds);
+  current.precipitation = damp(current.precipitation, target.precipitation, PRECIPITATION_RATE, dtSeconds);
+  current.fogginess = damp(current.fogginess, target.fogginess, FOG_RATE, dtSeconds);
+  current.instability = damp(current.instability, target.instability, INSTABILITY_RATE, dtSeconds);
+  current.temperatureC = damp(current.temperatureC, target.temperatureC, TEMPERATURE_RATE, dtSeconds);
+  current.visibilityM = damp(current.visibilityM, target.visibilityM, VISIBILITY_RATE, dtSeconds);
 }
 
 // ------------------------------------------------------------------------------ the model
@@ -333,8 +466,22 @@ export class WeatherModel {
   private readonly pressureNoise: Noise;
   private readonly moistureNoise: Noise;
   private readonly warmthNoise: Noise;
-  private readonly forecastSample: SynopticSample = createSynopticSample();
+  /** Scratch for a raw field probe, shared by the opening search and the forecast. */
+  private readonly probeScratch: SynopticSample = createSynopticSample();
+  /** The presented state, projected forward. See `forecast`. */
+  private readonly forecastState: SynopticSample = createSynopticSample();
   private readonly scores = new Float64Array(WEATHER_STATES.length);
+  private readonly seed: number;
+
+  /**
+   * Where in the field the world begins — see `seedOrigin`. Everything that reads the field
+   * adds this before it samples, so the offset is invisible to every caller and the field
+   * remains a pure function of the position and the hour it is handed.
+   */
+  private originX = 0;
+  private originZ = 0;
+  private originHours = 0;
+  private originSeeded = false;
 
   /** m/s of geostrophic wind per hPa per 100 km, at this latitude. */
   private geostrophicPerUnit = 1;
@@ -347,7 +494,12 @@ export class WeatherModel {
 
   private elapsedSeconds = 0;
   private fetchKm = 200;
-  private previousDirection = 0;
+  /**
+   * The sea, as a vector: its bearing is the bearing the swell runs on and its magnitude is the
+   * equivalent fetch in kilometres. See `updateFetch` for why it is not a scalar.
+   */
+  private fetchX = 0;
+  private fetchZ = 0;
   private primed = false;
   private override: WeatherStateDescriptor | null = null;
 
@@ -356,6 +508,7 @@ export class WeatherModel {
   private blendValue = 0;
 
   constructor(seed: number, latitudeDeg: number) {
+    this.seed = seed;
     this.pressureNoise = new Noise(seed);
     this.moistureNoise = new Noise((seed ^ 0x9e37_79b9) >>> 0);
     this.warmthNoise = new Noise((seed ^ 0x85eb_ca6b) >>> 0);
@@ -369,6 +522,7 @@ export class WeatherModel {
     this.steeringV = Math.sin(bearing) * perUnit;
 
     this.setLatitude(latitudeDeg);
+    this.seedOrigin();
   }
 
   /** Elapsed synoptic hours. One real minute is an hour and a half of weather. */
@@ -415,10 +569,131 @@ export class WeatherModel {
     const coriolis = 2 * EARTH_ANGULAR_RATE * Math.sin(effective * DEG_TO_RAD);
     // One hPa per 100 km is 1e-3 Pa/m, so V = |∇p| / (ρf) comes out in m/s directly.
     this.geostrophicPerUnit = 1e-3 / (AIR_DENSITY * coriolis);
+    if (this.originSeeded && this.elapsedSeconds < ORIGIN_RESEED_WINDOW_S) this.seedOrigin();
   }
 
-  /** Pin a named state, or pass null to hand the sky back to the field. */
+  /**
+   * Choose where in the pressure field the world begins.
+   *
+   * This is the answer to the opening being a lottery. The field is deterministic from the
+   * seed, so one seed used to open in a flat calm and the next in a severe gale — with the boat
+   * thrown about, the propeller ventilating on every crest and the rudder in aerated water,
+   * which is a legitimate state for the model to reach and a terrible one to arrive in.
+   *
+   * The fix is not to hold the wind down. Nothing here touches the physics: the field is
+   * unchanged, all eight states remain exactly as reachable as they were, and the wind is still
+   * only ever the geostrophic response to the gradient the seed drew. What changes is *where*
+   * the world starts, which is a thing this model is entitled to decide. It starts under a
+   * ridge — pressure above the mean, a slack gradient, a force 3 breeze that holds for the
+   * first few minutes — and finding that ridge means asking the seed's own field where its
+   * ridges are, rather than hoping the origin happened to land on one.
+   *
+   * Coarse random probes over a couple of lattice units of ocean and a few hundred synoptic
+   * hours, then local refinement around the best of them. Deterministic, and paid at
+   * construction rather than in the frame loop — the handful of extra times a late geolocation
+   * fix can trigger it are all inside the first seconds of a session.
+   */
+  private seedOrigin(): void {
+    this.originX = 0;
+    this.originZ = 0;
+    this.originHours = 0;
+
+    const random = new PRNG((this.seed ^ 0x6b43_a9f1) >>> 0);
+    let bestX = 0;
+    let bestZ = 0;
+    let bestHours = 0;
+    let best = Number.NEGATIVE_INFINITY;
+
+    for (let i = 0; i < ORIGIN_CANDIDATES; i += 1) {
+      const x = (random.next() * 2 - 1) * ORIGIN_SPAN_M;
+      const z = (random.next() * 2 - 1) * ORIGIN_SPAN_M;
+      const hours = (random.next() * 2 - 1) * ORIGIN_SPAN_HOURS;
+      const score = this.scoreOrigin(x, z, hours);
+      if (score > best) {
+        best = score;
+        bestX = x;
+        bestZ = z;
+        bestHours = hours;
+      }
+    }
+
+    let spanM = ORIGIN_SPAN_M * ORIGIN_REFINE_SPAN;
+    let spanHours = ORIGIN_SPAN_HOURS * ORIGIN_REFINE_SPAN;
+    for (let round = 0; round < ORIGIN_REFINEMENTS; round += 1) {
+      for (let i = 0; i < ORIGIN_REFINE_SAMPLES; i += 1) {
+        const x = bestX + (random.next() * 2 - 1) * spanM;
+        const z = bestZ + (random.next() * 2 - 1) * spanM;
+        const hours = bestHours + (random.next() * 2 - 1) * spanHours;
+        const score = this.scoreOrigin(x, z, hours);
+        if (score > best) {
+          best = score;
+          bestX = x;
+          bestZ = z;
+          bestHours = hours;
+        }
+      }
+      spanM *= ORIGIN_REFINE_SHRINK;
+      spanHours *= ORIGIN_REFINE_SHRINK;
+    }
+
+    this.originX = bestX;
+    this.originZ = bestZ;
+    this.originHours = bestHours;
+    this.originSeeded = true;
+  }
+
+  /**
+   * How good an opening one point in the field would make. Higher is better.
+   *
+   * Two things are being asked at once. The hard part is feasibility — the wind must sit inside
+   * forces 2 to 4 now and stay there for the first few minutes, under pressure above the mean —
+   * and it is worth a thousand points, so any feasible origin beats every infeasible one. The
+   * soft part is everything else, and it exists so that the refinement rounds have something to
+   * climb: how near force 3 the breeze is, how dry and how clear the air is, and whether the
+   * barometer is already falling, because a session should open in fair weather and then be
+   * allowed to deteriorate rather than opening halfway into the deterioration.
+   */
+  private scoreOrigin(xMetres: number, zMetres: number, hours: number): number {
+    const sample = this.probeScratch;
+    let score = 0;
+    let feasible = true;
+
+    for (let i = 0; i <= OPENING_SETTLED_PROBES; i += 1) {
+      const ahead = (i / OPENING_SETTLED_PROBES) * OPENING_SETTLED_HOURS;
+      this.probeField(xMetres, zMetres, hours + ahead, sample);
+      const speed = sample.windSpeed;
+      // The opening frame is judged hardest; the look-ahead only has to stay fishable.
+      const weight = i === 0 ? 1 : 0.35;
+      const miss = speed - OPENING_WIND_TARGET_MS;
+      score -= weight * miss * miss;
+      score -= weight * 6 * sample.precipitation;
+      score -= weight * 5 * sample.fogginess;
+      score -= weight * 3 * Math.max(0, sample.cloudiness - 0.6);
+      if (speed < OPENING_WIND_MIN_MS || speed > OPENING_WIND_MAX_MS) feasible = false;
+
+      if (i === 0) {
+        // Near a high rather than merely in a slack col between two lows: an anticyclone is
+        // what actually holds a settled airmass in place, where a col lets the next system
+        // straight in behind it.
+        const anomaly = sample.pressureHpa - MEAN_PRESSURE_HPA;
+        score += 2 * clamp(anomaly / 12, -1, 1);
+        score -= 1.5 * Math.max(0, -sample.trendHpaPerHour);
+        if (anomaly <= 0) feasible = false;
+      }
+    }
+
+    return feasible ? score + 1000 : score;
+  }
+
+  /**
+   * Pin a named state, or pass null to hand the sky back to the field.
+   *
+   * Called every frame from the settings, so it returns early when nothing has changed: the
+   * lookup takes a closure and the frame loop does not allocate.
+   */
   setOverride(name: string | null): void {
+    const current = this.override;
+    if (name === (current === null ? null : current.name)) return;
     this.override = name === null ? null : WEATHER_STATES.find((s) => s.name === name) ?? null;
   }
 
@@ -437,6 +712,28 @@ export class WeatherModel {
    * what gives the world mostly ordinary days and occasionally a genuinely bad one.
    */
   pressureAt(xMetres: number, zMetres: number, synopticHours: number): number {
+    return this.pressureField(
+      xMetres + this.originX,
+      zMetres + this.originZ,
+      synopticHours + this.originHours,
+    );
+  }
+
+  /**
+   * The whole field at one point in space and time. Deterministic, allocation-free, and the
+   * only place any of these quantities are decided.
+   */
+  probeAt(xMetres: number, zMetres: number, synopticHours: number, out: SynopticSample): void {
+    this.probeField(
+      xMetres + this.originX,
+      zMetres + this.originZ,
+      synopticHours + this.originHours,
+      out,
+    );
+  }
+
+  /** Pressure in the field's own frame, before the opening origin is applied. */
+  private pressureField(xMetres: number, zMetres: number, synopticHours: number): number {
     const scale = 1 / (SYNOPTIC_SCALE_KM * 1000);
     const u = xMetres * scale + this.steeringU * synopticHours;
     const v = zMetres * scale + this.steeringV * synopticHours;
@@ -449,18 +746,20 @@ export class WeatherModel {
     return MEAN_PRESSURE_HPA + PRESSURE_AMPLITUDE_HPA * n * (0.42 + 0.58 * n * n);
   }
 
-  /**
-   * The whole field at one point in space and time. Deterministic, allocation-free, and the
-   * only place any of these quantities are decided.
-   */
-  probeAt(xMetres: number, zMetres: number, synopticHours: number, out: SynopticSample): void {
+  /** The field in its own frame. `probeAt` is this with the opening origin added. */
+  private probeField(
+    xMetres: number,
+    zMetres: number,
+    synopticHours: number,
+    out: SynopticSample,
+  ): void {
     const d = GRADIENT_SAMPLE_M;
-    const pressure = this.pressureAt(xMetres, zMetres, synopticHours);
-    const east1 = this.pressureAt(xMetres + d, zMetres, synopticHours);
-    const east0 = this.pressureAt(xMetres - d, zMetres, synopticHours);
-    const south1 = this.pressureAt(xMetres, zMetres + d, synopticHours);
-    const south0 = this.pressureAt(xMetres, zMetres - d, synopticHours);
-    const before = this.pressureAt(xMetres, zMetres, synopticHours - TREND_WINDOW_HOURS);
+    const pressure = this.pressureField(xMetres, zMetres, synopticHours);
+    const east1 = this.pressureField(xMetres + d, zMetres, synopticHours);
+    const east0 = this.pressureField(xMetres - d, zMetres, synopticHours);
+    const south1 = this.pressureField(xMetres, zMetres + d, synopticHours);
+    const south0 = this.pressureField(xMetres, zMetres - d, synopticHours);
+    const before = this.pressureField(xMetres, zMetres, synopticHours - TREND_WINDOW_HOURS);
 
     // hPa per 100 km in the meteorological frame. North is −Z in world space, hence the swap.
     const gradEast = ((east1 - east0) / (2 * d)) * 1e5;
@@ -557,75 +856,121 @@ export class WeatherModel {
     this.elapsedSeconds += dt;
     this.probeAt(xMetres, zMetres, this.synopticHours, this.target);
 
-    const pinned = this.override;
-    if (pinned !== null) {
-      // A pinned state still arrives smoothly. Only the magnitude is forced; the direction stays
-      // with the field, so even an overridden storm veers as its front goes through.
-      const centre = beaufortCentreSpeed(pinned);
-      const scale = this.target.windSpeed > 1e-4 ? centre / this.target.windSpeed : 0;
-      this.target.windX *= scale;
-      this.target.windZ *= scale;
-      this.target.windSpeed = centre;
-      this.target.cloudiness = pinned.cloudiness;
-      this.target.precipitation = pinned.precipitation;
-      this.target.visibilityM = pinned.visibilityM;
-      this.target.fogginess = pinned.name === 'fog' ? 0.95 : 0;
-      this.target.instability = pinned.name === 'thunderstorm' ? 0.9 : 0;
-    }
+    this.applyOverride(this.target);
 
     const current = this.current;
     if (!this.primed) {
       this.primed = true;
       copySample(this.target, current);
-      this.previousDirection = current.windDirection;
+      // The world does not open on a sea that is still catching up with its own wind: the ridge
+      // it opens under has been sitting there, so the sea under it is already developed and
+      // already running on the bearing the wind is on.
+      this.fetchKm = developedFetchKm(current.windSpeed);
+      const unit = current.windSpeed > 1e-4 ? this.fetchKm / current.windSpeed : 0;
+      this.fetchX = current.windX * unit;
+      this.fetchZ = current.windZ * unit;
     } else {
-      // The wind *vector* is damped, never the speed and bearing separately: damping an angle
-      // through the ±π wrap is how you get a gust that spins the flag right round.
-      current.windX = damp(current.windX, this.target.windX, 0.035, dt);
-      current.windZ = damp(current.windZ, this.target.windZ, 0.035, dt);
-      current.windSpeed = Math.hypot(current.windX, current.windZ);
-      current.windDirection = Math.atan2(current.windX, -current.windZ);
-      current.pressureHpa = this.target.pressureHpa;
-      current.trendHpaPerHour = damp(current.trendHpaPerHour, this.target.trendHpaPerHour, 0.05, dt);
-      current.cloudiness = damp(current.cloudiness, this.target.cloudiness, 0.006, dt);
-      current.precipitation = damp(current.precipitation, this.target.precipitation, 0.01, dt);
-      current.fogginess = damp(current.fogginess, this.target.fogginess, 0.008, dt);
-      current.instability = damp(current.instability, this.target.instability, 0.008, dt);
-      current.temperatureC = damp(current.temperatureC, this.target.temperatureC, 0.005, dt);
-      current.visibilityM = damp(current.visibilityM, this.target.visibilityM, 0.02, dt);
+      relax(current, this.target, dt);
     }
 
     this.updateFetch(dt);
-    this.classify();
+    this.classify(current, true);
   }
 
   /**
-   * Fetch: how far the wind has blown over open water, which is what JONSWAP needs in order to
-   * know whether the sea is young and confused or old and organised.
+   * Force a sample to a pinned state, if one is set.
    *
-   * It builds at roughly the group velocity of the dominant wave while the wind holds its
-   * bearing, and a veer knocks it back — which is exactly what happens behind a cold front,
-   * where a new short-crested sea climbs on top of the swell the old wind left behind.
+   * A pinned state still arrives smoothly, because this rewrites the *target* and the damping
+   * downstream is untouched. Only the magnitude of the wind is forced; the bearing stays with
+   * the field, so even an overridden storm veers as its front goes through.
+   */
+  private applyOverride(target: SynopticSample): void {
+    const pinned = this.override;
+    if (pinned === null) return;
+
+    const centre = beaufortCentreSpeed(pinned);
+    if (target.windSpeed > 1e-4) {
+      const scale = centre / target.windSpeed;
+      target.windX *= scale;
+      target.windZ *= scale;
+    } else {
+      // A dead spot in the field has no bearing to keep, so the recorded direction is used
+      // directly rather than scaling a zero vector and leaving the speed disagreeing with it.
+      target.windX = Math.sin(target.windDirection) * centre;
+      target.windZ = -Math.cos(target.windDirection) * centre;
+    }
+    target.windSpeed = centre;
+    target.cloudiness = pinned.cloudiness;
+    target.precipitation = pinned.precipitation;
+    target.visibilityM = pinned.visibilityM;
+    target.fogginess = pinned.name === 'fog' ? 0.95 : 0;
+    target.instability = pinned.name === 'thunderstorm' ? 0.9 : 0;
+  }
+
+  /**
+   * Fetch: the run of open water the sea has effectively integrated, which is what JONSWAP needs
+   * in order to know whether the sea is young and confused or old and organised.
+   *
+   * Read it as duration-limited growth expressed as a fetch, because that is what it is. Every
+   * second the wind blows it lays down another `0.32·U` of equivalent fetch **along its own
+   * bearing**, and the sea is the running vector sum of all of that. The ceiling is the
+   * developed fetch for the wind blowing right now, which moves the instant the wind does while
+   * the sea takes hours to walk up to it; above the ceiling — the wind has eased and left its
+   * sea behind — the excess disperses instead, on a constant far longer than the one it grew
+   * on, because a swell outlives the gale that raised it.
+   *
+   * Carrying the fetch as a vector rather than a scalar is what makes the veer behave without
+   * a term of its own. A wind that backs a few degrees lays its new fetch almost parallel to
+   * the old and the sea keeps growing; one that veers a quadrant rotates the sea instead of
+   * adding to it, which is the swell-plus-new-wind-sea a cold front leaves; and one that
+   * reverses lays fetch straight into the old sea and erodes it at exactly the rate it built.
+   * The alternative — docking the fetch by how far the wind has wandered — was measuring path
+   * length, which is not a property of the weather at all: halve the timestep and it changes,
+   * and a wind fidgeting a few degrees about a steady mean grinds a grown sea away to nothing.
+   *
+   * Nothing downstream has to know any of this. The ocean asks the spectrum for a significant
+   * wave height and the spectrum asks this.
    */
   private updateFetch(dt: number): void {
-    const veer = Math.abs(angleDelta(this.current.windDirection, this.previousDirection));
-    this.previousDirection = this.current.windDirection;
-    this.fetchKm *= Math.exp(-veer * 0.9);
+    const speed = this.current.windSpeed;
+    const developed = developedFetchKm(speed);
     const synopticSeconds = dt * (3600 / SECONDS_PER_SYNOPTIC_HOUR);
-    this.fetchKm += (this.current.windSpeed * 0.45 * synopticSeconds) / 1000;
-    this.fetchKm = clamp(this.fetchKm, 25, 700);
+    const before = Math.hypot(this.fetchX, this.fetchZ);
+
+    if (speed > 1e-4) {
+      const grown = speed * FETCH_GROWTH_FRACTION * synopticSeconds * 1e-3;
+      this.fetchX += (this.current.windX / speed) * grown;
+      this.fetchZ += (this.current.windZ / speed) * grown;
+    }
+
+    // What the sea is allowed to be after this step: the developed fetch, plus whatever it was
+    // already carrying above it, less the part of that excess which has dispersed.
+    const excess = Math.max(0, before - developed);
+    const dispersal = Math.exp(-synopticSeconds / (FETCH_DECAY_HOURS * 3600));
+    const ceiling = clamp(developed + excess * dispersal, MIN_FETCH_KM, MAX_FETCH_KM);
+
+    const magnitude = Math.hypot(this.fetchX, this.fetchZ);
+    if (magnitude > ceiling && magnitude > 1e-6) {
+      const scale = ceiling / magnitude;
+      this.fetchX *= scale;
+      this.fetchZ *= scale;
+    }
+    this.fetchKm = clamp(Math.min(magnitude, ceiling), MIN_FETCH_KM, MAX_FETCH_KM);
   }
 
   /**
-   * Score every state against the smoothed field and keep the best two.
+   * Score every state against a sample and return the index of the winner.
    *
    * The scores are products of fuzzy memberships rather than a decision tree, so two states are
    * routinely close together — which is the point. A sky two thirds of the way from overcast to
    * rain should report exactly that, so the cloud renderer and the fishing tables can cross-fade
    * instead of snapping at the moment the winner changes.
+   *
+   * `record` is what separates classifying the present from classifying a projection: only the
+   * present is allowed to move the reported state, the neighbour, the blend and the debug
+   * panel's scores. The forecast runs the identical arithmetic and keeps the answer to itself.
    */
-  private classify(): void {
-    const sample = this.current;
+  private classify(sample: SynopticSample, record: boolean): number {
     const force = continuousBeaufort(sample.windSpeed);
 
     let bestIndex = 0;
@@ -635,7 +980,7 @@ export class WeatherModel {
     for (let i = 0; i < WEATHER_STATES.length; i += 1) {
       const descriptor = WEATHER_STATES[i];
       const score = descriptor === undefined ? 0 : scoreState(descriptor.name, force, sample);
-      this.scores[i] = score;
+      if (record) this.scores[i] = score;
       if (score > best) {
         second = best;
         secondIndex = bestIndex;
@@ -646,6 +991,7 @@ export class WeatherModel {
         secondIndex = i;
       }
     }
+    if (!record) return bestIndex;
 
     const pinned = this.override;
     if (pinned !== null) {
@@ -653,32 +999,59 @@ export class WeatherModel {
       this.stateIndex = index < 0 ? bestIndex : index;
       this.neighbourIndex = this.stateIndex;
       this.blendValue = 0;
-      return;
+      return this.stateIndex;
     }
 
     this.stateIndex = bestIndex;
     this.neighbourIndex = secondIndex;
     this.blendValue = best > 1e-6 ? clamp(second / best, 0, 1) : 0;
+    return bestIndex;
   }
 
   /**
-   * Look ahead along the field for severe weather.
+   * Look ahead for severe weather.
    *
    * A real forecast rather than a countdown: the field is a function of time, so the model can
-   * simply be asked what it will be doing in twenty minutes. That is what makes a falling
+   * simply be asked what it will be doing in half an hour. That is what makes a falling
    * barometer worth watching — the warning comes out of the same physics as the weather it
    * warns about, so it is right for the right reason, and occasionally wrong for the right
    * reason too, when a front slides past instead of over.
+   *
+   * Two things make it *truthful*, and both were wrong before. It projects the smoothed state
+   * the player is actually in, not the raw field the state is chasing — the field leads the sea
+   * by minutes, so reading the field at zero minutes announced storms that had not arrived and,
+   * with a state pinned, storms that were never going to. And "severe" is decided by the same
+   * classifier that names the state on the HUD, rather than by a second pair of thresholds that
+   * could disagree with it. When this says the storm is overhead, the HUD says storm.
    */
   forecast(xMetres: number, zMetres: number, out: StormWarning): void {
+    const pinned = this.override;
+    if (pinned !== null) {
+      // A pinned state is the weather, indefinitely, so there is nothing left to forecast: it
+      // is either severe now or it never will be. Reading the underlying field here instead is
+      // what used to put "STORM overhead" on the HUD over a seven-knot breeze.
+      const severe = isSevereState(pinned.name);
+      out.approaching = severe;
+      out.minutesAway = severe ? 0 : FORECAST_HORIZON_MIN;
+      return;
+    }
+
+    const projected = this.forecastState;
+    copySample(this.current, projected);
+
     const stepMinutes = FORECAST_HORIZON_MIN / FORECAST_PROBES;
+    const stepSeconds = stepMinutes * 60;
     const hoursPerMinute = 60 / SECONDS_PER_SYNOPTIC_HOUR;
+
     for (let i = 0; i <= FORECAST_PROBES; i += 1) {
       const minutes = i * stepMinutes;
-      const hours = this.synopticHours + minutes * hoursPerMinute;
-      this.probeAt(xMetres, zMetres, hours, this.forecastSample);
-      const ahead = this.forecastSample;
-      if (ahead.windSpeed >= 13.8 || (ahead.cloudiness > 0.85 && ahead.instability > 0.6)) {
+      if (i > 0) {
+        const hours = this.synopticHours + minutes * hoursPerMinute;
+        this.probeAt(xMetres, zMetres, hours, this.probeScratch);
+        relax(projected, this.probeScratch, stepSeconds);
+      }
+      const name = WEATHER_STATES[this.classify(projected, false)]?.name;
+      if (name !== undefined && isSevereState(name)) {
         out.approaching = true;
         out.minutesAway = minutes;
         return;

@@ -68,6 +68,21 @@ const DEFAULT_EYE_HEIGHT_M = 2.2;
  */
 const EXPOSURE_SAMPLE_INTERVAL = 15;
 
+/**
+ * Floor on the illuminance the exposure controller will adapt to, lux.
+ *
+ * A meter with unbounded gain renders every scene as mid-grey, which is right for a camera and
+ * wrong for an eye: dark adaptation saturates. Below roughly the light of a moonless, starlit sky
+ * there is no more gain to be had — you do not see a black sea as grey, you see it as black with
+ * a few stars over it — and a controller that keeps opening up simply amplifies the airglow floor
+ * until the whole frame is white. That is exactly what it did: a genuinely dark night metered to
+ * an exposure of 8149 and rendered as a blank white image.
+ *
+ * The value is set so a moonless sky at its airglow radiance of about 1.8e-4 cd/m² lands around
+ * 0.06 in linear display units — dark, but with a readable horizon and visible stars.
+ */
+const MIN_ADAPTED_ILLUMINANCE_LUX = 6e-3;
+
 export class Sky implements System {
   readonly name = 'sky';
   readonly priority = 0;
@@ -92,6 +107,14 @@ export class Sky implements System {
   private weather: SkyWeatherFamily = 'partly-cloudy';
   private adaptedIlluminance = 10000;
   private measuredSkyIlluminance = 10000;
+  /**
+   * Luminance the sky shader adds on top of the scattering tables after dark, cd/m².
+   *
+   * Kept here because the exposure meter reads the sky-view table, and that table is built for
+   * the sun alone: at night it is exactly zero, while the shader is drawing moonlight and airglow
+   * over it. Without this the meter is blind to the only light in the frame.
+   */
+  private nightFloorLuminance = 0;
   private exposureSampleCountdown = 0;
   /** False until the first real measurement lands, so boot does not fade in from a guess. */
   private adaptationPrimed = false;
@@ -161,7 +184,15 @@ export class Sky implements System {
       if (world !== undefined) (world.value as Matrix4).copy(camera.matrixWorld);
     };
 
-    this.stars.points.layers.enable(SKY_LAYER);
+    // The Milky Way joins the probe; the star catalogue deliberately does not.
+    //
+    // A star is a point source with no angular size at all. In a 128-pixel cubemap face one star
+    // occupies a whole texel — three quarters of a degree — which over-represents it by five
+    // orders of magnitude, and the water then reflects that texel off every wave facet whose
+    // normal happens to point at it. The result was a sea of blown white sparks on a moonless
+    // night. Starlight contributes about a millionth of moonlight's illuminance, so dropping it
+    // from the image-based lighting costs nothing measurable and removes the aliasing entirely.
+    // The Milky Way is a smooth surface brightness rather than a point, so it stays.
     this.stars.milkyWay.layers.enable(SKY_LAYER);
 
     const graphics = engine.settings.graphics;
@@ -220,6 +251,18 @@ export class Sky implements System {
   resetAdaptation(): void {
     this.exposureSampleCountdown = 0;
     this.adaptationPrimed = false;
+  }
+
+  /**
+   * Luminance the shader adds to every sky direction after dark, cd/m².
+   *
+   * Read by the debug API so `photometry()` reports what is on screen rather than what is in the
+   * table. A night sky that is plainly visible in the frame and reports a zenith luminance of
+   * zero is instrumentation that lies, and it is what sent two sessions looking in the wrong
+   * place for the blown-out night.
+   */
+  get nightFloor(): number {
+    return this.nightFloorLuminance;
   }
 
   /** Scale from the atmosphere LUT's units to candela per square metre. */
@@ -433,6 +476,18 @@ export class Sky implements System {
     // moonless sea still has a visible horizon. Fades out as soon as there is any real light.
     const airglow = 2.4e-4 * (1 - state.dayFactor);
     this.setVectorUniform('uAirglowRadiance', airglow * 0.62, airglow * 0.78, airglow * 1.0);
+
+    // Hand the same floor to the exposure meter.
+    //
+    // The two terms above are added by the fragment shader on top of the sky-view table, and that
+    // table is a function of the sun alone — after dark it is identically zero. So the meter,
+    // which reads the table, sees a black sky while the shader is drawing a lit one, opens up
+    // without limit, and renders midnight as a white frame. The factors are the hemispheric means
+    // of the shader's own `upness` falloffs (0.45..1 for the moon term, 0.6..1 for airglow), and
+    // the Rayleigh phase factor integrates to exactly one over the hemisphere, so it drops out.
+    this.nightFloorLuminance =
+      luminanceOfRgb(moonSky * 0.72, moonSky * 0.84, moonSky) * 0.85 +
+      luminanceOfRgb(airglow * 0.62, airglow * 0.78, airglow) * 0.9;
   }
 
   private updateLights(state: EphemerisState, cloudiness: number): void {
@@ -497,8 +552,9 @@ export class Sky implements System {
         Math.max(0, 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) * scale;
       const skyLuminance =
         0.42 * luminanceOf(zenith) + 0.38 * luminanceOf(middle) + 0.2 * luminanceOf(horizon);
-      // Radiance over the hemisphere back to illuminance on a horizontal surface.
-      this.measuredSkyIlluminance = skyLuminance * Math.PI;
+      // Radiance over the hemisphere back to illuminance on a horizontal surface. The night
+      // floor is added here rather than sampled because it never enters the table at all.
+      this.measuredSkyIlluminance = (skyLuminance + this.nightFloorLuminance) * Math.PI;
     }
 
     // Specular allowance.
@@ -510,29 +566,42 @@ export class Sky implements System {
     // the frame. A photographer metering the same scene would stop down for the highlight.
     //
     // So the meter is told about the specular the way an incident meter cannot be: the direct
-    // beam counts for several times its diffuse worth, because that is roughly the ratio between
-    // what a rough water surface returns towards the eye in the glitter path and what it
-    // scatters everywhere else.
-    const SPECULAR_GAIN = 5;
+    // beam counts for more than its diffuse worth, because a rough water surface returns far more
+    // towards the eye in the glitter path than it scatters everywhere else.
+    //
+    // The allowance used to be five, which was compensating for a defect rather than describing
+    // the scene: the specular lobe in `ocean.frag` was narrower than the half-degree source
+    // lighting it, so the highlight carried the whole of the moon's energy in a fraction of the
+    // solid angle it belongs in and blew out however far the meter stopped down. With the lobe
+    // widened to the source's real angular size, five stops the frame down so far that a
+    // moonlit sea renders black except for the path itself. One is an allowance; five was a
+    // patch over the shading.
+    const SPECULAR_GAIN = 1;
     const specular = (state.sunIlluminanceLux * 0.02 + state.moonIlluminanceLux) * SPECULAR_GAIN;
 
-    const total =
+    // The sky term is the whole of the night floor now that the meter can see it, so there is no
+    // longer a constant standing in for it — only a guard against a divide by zero if every
+    // source is somehow off at once.
+    const total = Math.max(
+      1e-9,
       state.sunIlluminanceLux * 0.35 +
-      state.moonIlluminanceLux +
-      specular +
-      this.measuredSkyIlluminance * (0.55 + world.cloudiness * 0.45) +
-      2.5e-4;
+        state.moonIlluminanceLux +
+        specular +
+        this.measuredSkyIlluminance * (0.55 + world.cloudiness * 0.45),
+    );
 
     // Adaptation is deliberately slow, and slower going dark than going bright — which is how
-    // eyes behave, and which stops a cloud crossing the sun from pumping the whole frame.
+    // eyes behave, and which stops a cloud crossing the sun from pumping the whole frame. It also
+    // stops: below MIN_ADAPTED_ILLUMINANCE_LUX the eye has no more gain to give, and neither has
+    // this, so a darker sky renders darker instead of being lifted back to grey.
     if (!this.adaptationPrimed) {
-      this.adaptedIlluminance = Math.max(1e-4, total);
+      this.adaptedIlluminance = Math.max(MIN_ADAPTED_ILLUMINANCE_LUX, total);
       this.adaptationPrimed = true;
     } else {
       const brightening = total > this.adaptedIlluminance;
       const rate = brightening ? 0.9 : 0.35;
       this.adaptedIlluminance = Math.max(
-        1e-4,
+        MIN_ADAPTED_ILLUMINANCE_LUX,
         damp(this.adaptedIlluminance, total, rate, Math.min(dt, 0.1)),
       );
     }
@@ -554,6 +623,11 @@ export class Sky implements System {
     const uniform = this.material.uniforms[name];
     if (uniform !== undefined) (uniform.value as Vector3).set(x, y, z);
   }
+}
+
+/** Rec. 709 luminance, matching `ef_luminance` in the shaders exactly. */
+function luminanceOfRgb(r: number, g: number, b: number): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 /** A single triangle covering clip space, with UVs the fullscreen vertex shader ignores. */

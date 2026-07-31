@@ -1,4 +1,4 @@
-import { HalfFloatType, Uniform, type WebGLRenderer } from 'three';
+import { HalfFloatType, Uniform, Vector3, type WebGLRenderer } from 'three';
 import {
   BlendFunction,
   BloomEffect,
@@ -16,7 +16,9 @@ import {
 } from 'postprocessing';
 import type { Engine, System } from '../core/Engine.js';
 import { damp } from '../math/Noise.js';
+import { createGradeParams, evaluateGrade, type GradeParams } from './ColourGrade.js';
 import exposureFrag from '../shaders/post/exposure.frag';
+import gradeFrag from '../shaders/post/grade.frag';
 
 /**
  * The post chain.
@@ -30,9 +32,12 @@ import exposureFrag from '../shaders/post/exposure.frag';
  *      sun's disc, its glitter path and specular highlights on wet surfaces bloom at all.
  *   3. **Tone mapping** — ACES filmic. Rolls the highlights off instead of clipping them, which
  *      is the single biggest reason a frame reads as photographed rather than rendered.
- *   4. **Grade** — a per-regime lift/gamma/gain, blended on the real solar altitude. Warm and
- *      slightly lifted at golden hour, cool and denser at night, desaturated and flat in a
- *      storm. Still a *grade*, not a colouring: it moves the frame a few percent.
+ *   4. **Grade** — a per-regime lift/gamma/gain, blended on the real solar altitude. Warm
+ *      highlights over cool shadows at golden hour, cool and denser at night, desaturated and
+ *      flat in a storm. Still a *grade*, not a colouring: it moves the frame a few percent —
+ *      one to six code values out of 255 on every sample measured. The numbers
+ *      come from `ColourGrade.ts`, which is a pure function of the ephemeris and the weather
+ *      and is unit-tested; this file only carries them to the GPU.
  *   5. **Vignette, grain, chromatic aberration** — lens artefacts, all barely there.
  *   6. **SMAA** — last, because antialiasing belongs in display-referred space; run before tone
  *      mapping it would blend HDR values and leave haloes around every highlight.
@@ -55,6 +60,45 @@ class ExposureEffect extends Effect {
   }
 }
 
+/**
+ * Custom effect: the per-regime grade.
+ *
+ * Holds direct references to the three vector uniforms so the per-frame update is three
+ * `set` calls into existing objects and allocates nothing. They are created as locals first
+ * because class fields initialise after `super()`, and the uniform map is a `super()` argument.
+ */
+class ColourGradeEffect extends Effect {
+  private readonly lift: Vector3;
+  private readonly gamma: Vector3;
+  private readonly gain: Vector3;
+
+  constructor() {
+    const lift = new Vector3(0, 0, 0);
+    const gamma = new Vector3(1, 1, 1);
+    const gain = new Vector3(1, 1, 1);
+    super('ColourGradeEffect', gradeFrag, {
+      blendFunction: BlendFunction.SRC,
+      uniforms: new Map<string, Uniform>([
+        ['uLift', new Uniform(lift)],
+        ['uGamma', new Uniform(gamma)],
+        ['uGain', new Uniform(gain)],
+        ['uSaturation', new Uniform(1)],
+      ]),
+    });
+    this.lift = lift;
+    this.gamma = gamma;
+    this.gain = gain;
+  }
+
+  setGrade(params: GradeParams): void {
+    this.lift.set(params.liftR, params.liftG, params.liftB);
+    this.gamma.set(params.gammaR, params.gammaG, params.gammaB);
+    this.gain.set(params.gainR, params.gainG, params.gainB);
+    const saturation = this.uniforms.get('uSaturation');
+    if (saturation !== undefined) saturation.value = params.saturation;
+  }
+}
+
 export class PostFX implements System {
   readonly name = 'postfx';
   // Last: it does not touch the scene, it consumes it.
@@ -64,6 +108,9 @@ export class PostFX implements System {
   private readonly exposureEffect = new ExposureEffect();
   private readonly bloom: BloomEffect;
   private readonly toneMapping: ToneMappingEffect;
+  private readonly grade = new ColourGradeEffect();
+  /** Reused every frame: `evaluateGrade` writes into this rather than returning a new object. */
+  private readonly gradeParams: GradeParams = createGradeParams();
   private readonly vignette: VignetteEffect;
   private readonly noise: NoiseEffect;
   private readonly chromaticAberration: ChromaticAberrationEffect;
@@ -134,6 +181,22 @@ export class PostFX implements System {
     // removes the step that a settings change or a manual time override would otherwise cause.
     this.smoothedExposure = damp(this.smoothedExposure, engine.world.exposure, 12, Math.min(dt, 0.1));
     this.exposureEffect.exposure = this.smoothedExposure;
+
+    // The grade is not smoothed, and that is deliberate. Solar altitude moves at a quarter of a
+    // degree a minute and the weather field is already damped, so there is nothing to smooth;
+    // and when the player drags the time slider the sky cuts, so the grade should cut with it.
+    // Damping here would leave a night grade sitting over a noon frame for a second.
+    const ephemeris = engine.world.ephemeris;
+    if (ephemeris !== null && engine.settings.graphics.gradeEnabled) {
+      evaluateGrade(
+        ephemeris.sunAltitudeDeg,
+        engine.world.cloudiness,
+        engine.world.precipitation,
+        engine.world.beaufort,
+        this.gradeParams,
+      );
+      this.grade.setGrade(this.gradeParams);
+    }
   }
 
   onSettingsChanged(engine: Engine): void {
@@ -181,9 +244,14 @@ export class PostFX implements System {
     // what makes the threshold mean what it says.
     this.effectPasses.push(new EffectPass(engine.camera, this.exposureEffect));
 
+    // The grade is per-pixel, so it costs a handful of ALU ops inside a pass that already
+    // exists rather than a pass of its own — and it goes after tone mapping, because it grades
+    // a display-referred frame. Order within the array is preserved for non-convolution
+    // effects, so this is the order it runs in.
     const graded: Effect[] = [];
     if (graphics.bloomEnabled) graded.push(this.bloom);
     graded.push(this.toneMapping);
+    if (graphics.gradeEnabled) graded.push(this.grade);
     if (graphics.vignetteEnabled) graded.push(this.vignette);
     if (graphics.grainEnabled) graded.push(this.noise);
     this.effectPasses.push(new EffectPass(engine.camera, ...graded));

@@ -69,10 +69,27 @@ const ANCHOR_SPRING = 5200;
 const ANCHOR_DAMPING = 11000;
 const ANCHOR_MAX_TENSION = 42000;
 
-/** Emissive radiance of the lenses when lit. Linear HDR; the composer tone maps. */
-const SIDELIGHT_RADIANCE = 9;
-const MASTHEAD_RADIANCE = 14;
-const LANTERN_RADIANCE = 7;
+/**
+ * Brightness of the lenses when lit, expressed as a multiple of the metered white.
+ *
+ * These are deliberately not absolute radiances. A real navigation lantern's lens sits around
+ * six thousand candela per square metre, and at the exposure a moonless sea needs — around 340 —
+ * that is two million times over white. With no lens model in the chain, bloom turns a
+ * centimetre of glass into a white disc a third of the frame across.
+ *
+ * Nor does a fixed radiance work, because the exposure between civil twilight and midnight moves
+ * by a factor of a hundred: any constant that reads as a lamp at one is invisible or overwhelming
+ * at the other. A photographer with a light in shot stops down for it; this frame cannot, because
+ * the same image has to keep a sea lit by airglow readable.
+ *
+ * So the lamps are given a fixed number of stops over whatever the meter settled on. They are
+ * blown at the core with a bounded halo at every hour of the night, which is what they look like.
+ * The ratios between them are the real ones: a masthead light must be visible at five miles, a
+ * sidelight at two, and the working lantern is dimmer than either.
+ */
+const SIDELIGHT_EXPOSED = 26;
+const MASTHEAD_EXPOSED = 40;
+const LANTERN_EXPOSED = 18;
 
 /** Hull-space points the control loads are applied at. */
 const THRUST_POINT = new Vector3(0, -0.34, 3.1);
@@ -577,12 +594,16 @@ export class Boat implements System {
     const lit = ephemeris !== null && ephemeris.sunAltitudeDeg < SUNSET_ALTITUDE_DEG;
     this.lightLevel = damp(this.lightLevel, lit ? 1 : 0, 3, dt);
 
+    // Divided by the exposure the sky settled on, so what reaches the screen is the constant
+    // above rather than a radiance that means something different every hour.
+    const scale = this.lightLevel / Math.max(1e-6, engine.world.exposure);
+
     const lights = this.parts.navLights;
-    lights.port.material.emissiveIntensity = this.lightLevel * SIDELIGHT_RADIANCE;
-    lights.starboard.material.emissiveIntensity = this.lightLevel * SIDELIGHT_RADIANCE;
-    lights.stern.material.emissiveIntensity = this.lightLevel * SIDELIGHT_RADIANCE;
-    lights.masthead.material.emissiveIntensity = this.lightLevel * MASTHEAD_RADIANCE;
-    lights.lantern.material.emissiveIntensity = this.lightLevel * LANTERN_RADIANCE;
+    lights.port.material.emissiveIntensity = scale * SIDELIGHT_EXPOSED;
+    lights.starboard.material.emissiveIntensity = scale * SIDELIGHT_EXPOSED;
+    lights.stern.material.emissiveIntensity = scale * SIDELIGHT_EXPOSED;
+    lights.masthead.material.emissiveIntensity = scale * MASTHEAD_EXPOSED;
+    lights.lantern.material.emissiveIntensity = scale * LANTERN_EXPOSED;
   }
 
   /**

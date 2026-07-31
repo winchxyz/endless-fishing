@@ -5,11 +5,12 @@
 | | |
 |---|---|
 | Frame rate | **60 FPS locked**, 1080p, High preset |
-| Draw calls | **79** against a budget of 300 |
-| Triangles | 313,562 |
-| Tests | **80 passing** |
+| Draw calls | **157** against a budget of 300 |
+| Triangles | 896,101 (the ocean now reaches past the horizon; see below) |
+| Tests | **199 passing** |
 | CPU/GPU wave parity | 0.0059 mm max, 0.0012 mm RMS over 4096 points |
 | Sky luminance at solar noon | 2784 cd/m² zenith, 8424 cd/m² horizon |
+| Exposure across a day | 4.8e-5 at noon → 341 on a moonless night, metered, never modelled |
 | Astronomy | every rise/set/transit matches the **US Naval Observatory to the minute** |
 | Asset payload | 131 MB downloaded / 103 MB on disk / 67 MB shipped |
 
@@ -36,38 +37,81 @@ true galactic coordinates.
 hand-tuned. CPU/GPU parity proven on the real driver.
 
 **Phase 4 — Boat.** 27 procedural parts, hull lofted from the same form the solver uses.
-The agent found and analytically corrected two real defects: the probe quadrature was losing
-two-thirds of the righting moment, and buoyancy acting at the keel trimmed the hull 7° by the head.
+Two real defects found and analytically corrected: the probe quadrature was losing two-thirds of
+the righting moment, and buoyancy acting at the keel trimmed the hull 7° by the head.
 
-**Phase 5 — Post.** Brought forward out of necessity — `ShaderMaterial` does not apply three's
-tone mapping, so a physically-authored scene clips to white without a composer.
+**Phase 5 — Post.** Exposure, bloom, ACES, the per-regime grade, vignette, grain and SMAA, in
+that order and in the pass structure the effects actually require.
 
-**Phase 9 — Weather.** A genuine synoptic model: fBm pressure field, geostrophic wind with real
-Coriolis, states as a classification *of* the field. Raymarched clouds lit by sun and moon.
-**Cloud shadows on the water**, attenuating only the direct beam.
+**Phases 6–9 — The game.** Fishing loop, bite model, fight model, species table, progression,
+inventory, journal. Fish, schools, seabed and an underwater pass. Islands, props and vegetation
+on a shared heightfield. A genuine synoptic weather model: fBm pressure field, geostrophic wind
+with real Coriolis, states as a classification *of* the field, with cloud shadows on the water.
 
-## In flight
+**Phase 10 — Motion, sound and session.** The wake and bow spray, the audio beds, save
+persistence, the catch card and the colour grade. See below.
 
-Four agents building the fishing loop, fish and underwater, UI and progression, and islands and
-props. Their substrate — bite model, species table, tides, chunk streaming, material library,
-audio engine — is already in and compiling.
+## This pass
+
+Ten open bugs closed, each verified on a rendered frame before it was called done.
+
+1. **The orange horizon band.** Not the clouds, not the panoramas, not chromatic aberration
+   alone. A flat sea plane can never reach the horizon: its far edge sits at a depression of
+   `atan(eye/radius)` and the true horizon is at `sqrt(2·eye/R)`, and for any finite plane the
+   first is larger — so a wedge of below-horizon sky showed between the water and the sky, right
+   round the compass. About a pixel on High, fourteen on Low, eight from the orbit camera. Fixed
+   by curving the sea (`d²/2R` on the projected vertex only) and extending the clipmap past the
+   horizon of the highest eye the camera can reach, so the mesh's own silhouette *is* the
+   horizon. The sky dome now also carries its horizon radiance below the horizon, because the
+   environment cubemap's lower hemisphere is sampled by the water's grazing reflection through a
+   mip chain several degrees wide.
+2. **The blown-out night.** The exposure meter reads the sky-view table, which is built for the
+   sun alone and is exactly zero after dark — so it never saw the airglow and moonlight the
+   fragment shader adds on top, opened up to an exposure of 8149, and rendered midnight as a
+   white frame. The floor is now metered. Adaptation also stops at 6e-3 lux, because dark
+   adaptation saturates and an eye has a maximum gain. Two further night defects fell out of
+   looking at the frame: the **Milky Way was drawn at 1.0 cd/m²**, four thousand times its real
+   21.5 mag/arcsec² surface brightness, blowing a third of the sky to flat white; and the
+   **star catalogue was in the environment probe**, where one point source occupies a whole
+   texel of a 128-pixel cube face and the water reflected it off every wave facet.
+3. **The moon's glitter path.** The GGX lobe was narrower than the half-degree disc lighting it,
+   which packs the whole of the source's energy into a highlight smaller than the source — a
+   factor of sixteen on a near-mirror sea. Karis' sphere-light widening, with the
+   `(α/α′)²` renormalisation, fixes it at the source, and the meter's specular allowance came
+   down from 5 to 1 because it had been compensating for this.
+4. **Motion is invisible.** `Wake` written: a ribbon carrying both Kelvin wave systems, laid on
+   the same Gerstner bank the ocean uses, plus a GPU bow-spray system emitting as the cube of
+   speed. The boat makes 6.2 knots at full throttle and now looks like it.
+5. **No audio.** `AudioBeds` written and instantiated: sea, wind, engine, hull slap, rain,
+   distance-delayed thunder, an underwater low-pass and the tackle. Silent until the first
+   gesture, because a Web Audio context created outside one logs a warning.
+6. **Save did not persist.** Wired, debounced, versioned, and written on `pagehide` as well.
+7. **The catch card never appeared.** Wired, with the journal written *after* the personal-best
+   flag is read — otherwise every fish is a personal best.
+8. **The cloud NaN.** Root cause found, and it was not where the guard had been put.
+   `hdrClamp`'s NaN scrub was `mix(colour, 0, vec3(notEqual(...)))`, which selects mix's FLOAT
+   overload — `NaN*0.0 + 0.0*1.0` is still NaN. It reads like a select and is not one. The mint
+   was a 0/0 in `remap` where `1.0 - cover` rounds to exactly 1.0 for any cover below 2⁻²⁵, and
+   the escape hatch was `ef_lightDepth`, the one consumer of `ef_cloudDensity` with no density
+   test. All three fixed.
+9. **The cloud band at the horizon.** Also not where it looked: `tFar = min(shellExit, 62 km)` is
+   a limit on *coverage*, and it culled the whole deck below the elevation at which `tNear`
+   passed the limit — 0.597° for a cumulus base, identically at every azimuth. Capping the
+   marched **span** instead keeps `tFar > tNear` unconditionally and nothing is ever culled.
+10. **Weather opened pinned.** The pressure field now seeds itself under a ridge whatever the
+    world seed is, so the override is gone and all eight states are reachable in normal play.
 
 ## Known issues
 
-1. **The cloud layer bands into a hard strip at the horizon.** Visible in every daytime frame.
-   Not yet diagnosed.
-2. **The boat reads flat**, which points at its materials not sampling the environment probe.
-   Not yet diagnosed.
-3. **Night frames unverified** since the sky-floor fix. The moonlight-scattering and airglow
-   terms are in and physically scaled, but I have not looked at a frame to confirm.
-4. **One console warning** in dev builds — an ANGLE/D3D literal-precision note
-   (`X4122`) from a shader with inlined trigonometric constants, almost certainly three's own
-   PMREM blur. Absent from production builds, where `checkShaderErrors` is off.
-5. **`npm run verify` is unreliable.** Its logs and the screenshot timestamps have disagreed
-   across runs, which cost real time. Visual checks currently go through `scripts/probe.ts`,
-   which captures a single frame and is trustworthy. The harness needs fixing properly.
-
-## Not started
-
-Phase 11 (polish, LOD tuning, final grade) and Phase 12 (production build, GitHub Pages
-deployment, README with media). No live URL yet.
+1. **No depth of field, GTAO, god rays or motion blur.** Each is a convolution effect needing a
+   full-screen pass of its own; CLAUDE.md's degradation priority lists DoF and motion blur among
+   the first things to cut, and a circle of confusion tuned for the boat smears a horizon that has
+   no depth discontinuity to key off. The grade — which the priority list *does* protect — went in
+   instead.
+2. **One driver note in dev builds.** ANGLE's D3D backend emits an X4122 advisory about
+   three's own PMREM prefilter shader, and three prints any non-empty program info log as a
+   warning. It is absent from production builds, where `checkShaderErrors` is off, and
+   `npm run verify` now reports it separately from real console issues rather than failing on it.
+   Anything containing `ERROR:` still fails the run.
+3. **`AudioBeds` and `Fish`, `Weather`, `BoatGeometry` and several others are over the ~450-line
+   smell threshold.** The audio module has been split; the older ones have not.

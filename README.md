@@ -4,7 +4,21 @@ An endless ocean, under the sky that is actually above you right now.
 
 **[Play it →](https://winchxyz.github.io/endless-fishing/)**
 
-![The boat at golden hour](screenshots/probe.png)
+![The boat at golden hour, under way, with its wake](docs/media/01-golden-hour.png)
+
+| Dawn — sun +1° | Noon — sun +81° |
+|---|---|
+| ![](docs/media/02-dawn.png) | ![](docs/media/03-noon.png) |
+| **Civil twilight — sun −8°** | **Moonless night — sun −34°** |
+| ![](docs/media/04-civil-twilight.png) | ![](docs/media/05-night.png) |
+| **Overcast, force 5** | **Storm, force 9** |
+| ![](docs/media/06-overcast.png) | ![](docs/media/07-storm.png) |
+
+![A force 9 gale](docs/media/storm.gif)
+
+Every one of those is the same code at a different UTC timestamp. There is no day/night curve and
+no weather preset: the sky comes out of the ephemeris and the sea state out of a pressure field.
+`npx tsx scripts/media.ts` regenerates the lot, so the pictures cannot drift from the renderer.
 
 ---
 
@@ -97,6 +111,31 @@ the Coriolis parameter from the real latitude. The eight weather states are a *c
 that field. Clear cannot become storm without clouding over first — not because a rule forbids
 it, but because every quantity is exponentially damped and a damped wind cannot skip force 5.
 
+### The wake
+
+A ribbon of geometry skinned along the boat's own track, carrying both of Kelvin's wave systems.
+The transverse crests are square across the track at a wavelength of exactly 2πv²/g, so they open
+out as the throttle goes on; the diverging pair are confined inside a half-angle of arcsin(1/3) =
+19.47°, which has no speed in it at all — that is why every wake on earth, from a duck to a
+supertanker, opens at the same angle. The ribbon sits on the sea by evaluating the *same* Gerstner
+bank the ocean's own vertex shader evaluates, from the same uniform arrays and the same clock, so
+it can never float above a swell or cut through one. Bow spray is a GPU particle system: the CPU
+sets an emission level and an emitter transform once a frame and every droplet's arc is
+closed-form in the vertex shader, with emission going as the *cube* of speed plus a term for the
+hull's vertical acceleration, because a boat landing off a crest throws far more water than a boat
+cruising.
+
+### Sound
+
+Every bed is synthesised, and every one is driven by a number out of `WorldState` rather than by a
+trigger. The sea is noise shaped by significant wave height, with the hiss of breaking crests
+appearing only above force 4 — because whitecaps do. Wind in the rigging is a *tone*, not a hiss:
+a wire sheds vortices at `f = St·U/d`, so the note rises as it breezes up. The engine is an FM
+voice at the firing frequency with governor droop, so opening the throttle under way sounds
+different from revving in neutral. Thunder is delayed by the real distance at 343 m/s and filtered
+by it too — a strike at 400 m is a crack, one at 8 km is four seconds of low rumble with no crack
+left in it.
+
 ### Buoyancy
 
 Ten probes, Archimedes, hand-written, no physics library, integrated at a fixed 120 Hz. Building
@@ -110,17 +149,30 @@ keel rather than at the prism centroid trimmed the hull 7° down by the head.
 npm install
 npm run assets      # 131 MB of CC0 assets, checksum-locked, idempotent
 npm run textures    # ORM packing, lunar normal map, star catalogue → binary
-npm run test:run    # 130 tests
+npm run test:run    # 199 tests
 npm run dev
 ```
 
-`npx tsx scripts/probe.ts "2026-06-21T16:10:00Z"` boots headless, prints photometry and frame
-stats, and writes a frame to `screenshots/`.
+`scripts/probe.ts` boots headless, captures as many moments as you ask for inside one browser
+session, prints the photometry, the helm and the frame stats for each, and writes both the frame
+and a 4× zoom of its horizon:
+
+```bash
+npx tsx scripts/probe.ts --times=2026-06-21T16:10:00Z,2026-06-21T21:30:00Z --tag=look
+npx tsx scripts/probe.ts --hold=w --settle=40000 --tag=wake     # under way, for the wake
+npx tsx scripts/probe.ts --graphics='{"bloomEnabled":false}'    # one effect at a time
+```
+
+That last form is how the horizon bug was finally caught: capture the same moment with one knob
+off and diff the rows either side of the horizon.
 
 ## Performance
 
-Measured on an RTX 4070 Laptop at 1080p, High preset: **60 FPS, 152 draw calls** against a
-budget of 300, 450k triangles, 40 shader programs.
+Measured on an RTX 4070 Laptop at 1080p, High preset: **60 FPS, 157 draw calls** against a budget
+of 300, 900k triangles, 41 shader programs. The triangle count went up by 400k when the ocean was
+extended past the horizon — see `HORIZON_REACH_M` in `world/Ocean.ts` and the curvature term at
+the end of `ocean.vert`, which together are what removed the band that used to sit on the horizon
+of every frame.
 
 ## Credits
 
@@ -137,6 +189,10 @@ Code is MIT. See `LICENSE`.
 
 ## Known issues
 
-Recorded honestly in `PROGRESS.md`. The current ones: the cloud layer bands at the horizon, the
-per-regime LUT colour grade is not implemented, audio and save are written but not yet wired,
-and `npm run verify` is unreliable and should not be trusted over `scripts/probe.ts`.
+Recorded honestly in `PROGRESS.md`. The current ones: there is no depth of field, no ground-truth
+ambient occlusion, no god rays and no motion blur — each is a convolution effect needing a
+full-screen pass of its own, and CLAUDE.md's degradation priority lists the first and the last as
+things to *cut* before shadow cascades, so none of them was worth adding ahead of the grade. In
+dev builds the console carries one advisory note from the graphics driver about three's own PMREM
+prefilter shader; it is reported separately by `npm run verify` and there is no edit to this
+repository that removes it.

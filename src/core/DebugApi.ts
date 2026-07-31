@@ -1,5 +1,6 @@
 import type { Engine } from './Engine.js';
-import type { QualityPreset } from './Settings.js';
+import type { GraphicsSettings, QualityPreset } from './Settings.js';
+import type { Boat } from '../entities/Boat.js';
 import type { Ocean } from '../world/Ocean.js';
 import type { Sky } from '../world/Sky.js';
 import type { SkyWeatherFamily } from '../world/SkyLibrary.js';
@@ -55,6 +56,16 @@ export interface EphemerisSummary {
   beaufort: number;
 }
 
+export interface HelmSummary {
+  speedKnots: number;
+  headingDeg: number;
+  /** −1 (full astern) .. +1 (full ahead), after the throttle lever's own lag. */
+  throttle: number;
+  /** Fraction of the hull's probes under water this step. Thrust scales with it. */
+  wettedFraction: number;
+  anchored: boolean;
+}
+
 export interface EndlessFishingApi {
   readonly version: 1;
   /** True once the first frame has been presented. */
@@ -67,7 +78,23 @@ export interface EndlessFishingApi {
   setWind(speedMetresPerSecond: number, directionDeg: number): void;
   setCloudiness(fraction: number): void;
   setPreset(preset: QualityPreset): void;
+  /**
+   * Override individual graphics knobs on top of the current preset.
+   *
+   * This is how a rendering defect gets attributed to the effect that causes it: capture the same
+   * moment with one knob off and diff the two frames. Guessing which pass owns a one-pixel
+   * artefact costs far more than being able to switch each one off in turn.
+   */
+  setGraphics(patch: Partial<GraphicsSettings>): void;
   stats(): FrameStats;
+  /**
+   * What the hull is actually doing.
+   *
+   * Added because "the boat does not move" and "the boat moves and nothing on screen says so"
+   * look identical from outside, and telling them apart by watching a screenshot of a HUD is
+   * slower and less reliable than reading six numbers.
+   */
+  helm(): HelmSummary | null;
   ephemeris(): EphemerisSummary | null;
   /** CPU/GPU wave agreement, in metres. */
   waveParity(): ParityResult | null;
@@ -147,6 +174,11 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
       engine.settings.applyPreset(preset);
     },
 
+    setGraphics(patch: Partial<GraphicsSettings>): void {
+      Object.assign(engine.settings.graphics, patch);
+      engine.settings.emit('graphics');
+    },
+
     stats(): FrameStats {
       const info = engine.renderer.info;
       return {
@@ -162,6 +194,18 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
         preset: engine.settings.graphics.preset,
         pixelRatio: engine.pixelRatio,
         usingComposer: engine.renderOverride !== null,
+      };
+    },
+
+    helm(): HelmSummary | null {
+      const boat = engine.get<Boat>('boat');
+      if (boat === undefined) return null;
+      return {
+        speedKnots: boat.speedKnots,
+        headingDeg: (boat.heading * 180) / Math.PI,
+        throttle: boat.throttleSetting,
+        wettedFraction: boat.solver.wettedFraction,
+        anchored: boat.isAnchored,
       };
     },
 
@@ -203,8 +247,11 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
       const scale = sky.skyIntensity;
       const toLuminance = (rgb: [number, number, number]): number =>
         (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) * scale;
-      const zenithLuminance = toLuminance(zenith);
-      const horizonLuminance = toLuminance(horizon);
+      // The night floor is added by the fragment shader on top of the table, so a reading taken
+      // from the table alone reports zero for a sky that is plainly lit. Include it.
+      const floor = sky.nightFloor;
+      const zenithLuminance = toLuminance(zenith) + floor;
+      const horizonLuminance = toLuminance(horizon) + floor * 0.55;
       const exposure = engine.world.exposure;
       return {
         zenithLuminance,

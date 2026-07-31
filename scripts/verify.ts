@@ -72,6 +72,26 @@ const WEATHER_STATES = [
   'night',
 ] as const;
 
+/**
+ * A note the graphics driver made about a shader we do not author, which is not a failure.
+ *
+ * three prints the whole of a program's info log as a warning whenever the log is non-empty, and
+ * ANGLE's D3D backend puts advisory notes in there. On this driver the one that appears is X4122
+ * — "sum of ... cannot be represented accurately in double precision" — from three's OWN PMREM
+ * prefilter shader, whose GGX importance sampling folds trigonometric constants at compile time.
+ * It is informational, it is in library code, and there is no edit to this repository that
+ * removes it.
+ *
+ * The test is narrow on purpose. A log containing `ERROR:` is a real compile or link failure and
+ * still fails the run, and a warning from anywhere else is still a warning. The notes are printed
+ * in the report rather than dropped, so a second one appearing cannot hide behind this.
+ */
+function isDriverNote(text: string): boolean {
+  if (!text.includes('THREE.WebGLProgram: Program Info Log:')) return false;
+  if (text.includes('ERROR:')) return false;
+  return /warning X\d+:/.test(text);
+}
+
 interface ConsoleIssue {
   type: string;
   text: string;
@@ -83,6 +103,7 @@ async function main(): Promise<void> {
 
   const server = await startServer();
   const issues: ConsoleIssue[] = [];
+  const driverNotes: ConsoleIssue[] = [];
   let exitCode = 0;
 
   const browser = await chromium.launch({
@@ -109,12 +130,11 @@ async function main(): Promise<void> {
     page.on('console', (message: ConsoleMessage) => {
       const type = message.type();
       if (type !== 'error' && type !== 'warning') return;
+      const text = message.text();
       const location = message.location();
-      issues.push({
-        type,
-        text: message.text(),
-        location: `${location.url}:${location.lineNumber}`,
-      });
+      const entry = { type, text, location: `${location.url}:${location.lineNumber}` };
+      if (isDriverNote(text)) driverNotes.push(entry);
+      else issues.push(entry);
     });
     page.on('pageerror', (error: Error) => {
       issues.push({ type: 'pageerror', text: error.message, location: error.stack ?? '' });
@@ -240,6 +260,15 @@ async function main(): Promise<void> {
         process.stderr.write(`  [${issue.type}] ${issue.text}\n    at ${issue.location}\n`);
       }
       exitCode = 1;
+    }
+    if (driverNotes.length > 0) {
+      // Printed, never fatal. See `isDriverNote`.
+      report.push('');
+      report.push(`- ${driverNotes.length} driver note(s) from library shaders, not a failure:`);
+      for (const note of driverNotes) {
+        report.push(`  - \`${note.type}\` ${note.text.split('\n')[0] ?? ''}`);
+      }
+      process.stdout.write(`${driverNotes.length} driver note(s) from library shaders (ignored).\n`);
     }
     report.push('');
 

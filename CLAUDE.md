@@ -31,6 +31,8 @@ npm run test:run   # vitest run  (CI)
 npm run assets     # download + verify CC0 assets into assets/
 npm run textures   # process downloaded textures -> KTX2 / ORM packing
 npm run verify     # playwright: boot, assert zero console errors, capture screenshots, log FPS
+npm run probe      # playwright: capture chosen moments, photometry, helm, horizon zooms
+npm run media      # regenerate docs/media/ — the stills and the storm GIF the README shows
 npm run lint       # tsc --noEmit
 ```
 
@@ -43,7 +45,7 @@ src/
   core/      Engine, Renderer, Loop, Input, Time, ResourceManager, Settings
   astro/     SolarPosition, LunarPosition, SiderealTime, StarCatalog, Refraction, AstroTime
   world/     Ocean, Sky, Atmosphere, Weather, Islands, Tides, Props
-  entities/  Boat, Fish, FishingRod, Bobber, Birds, Wake
+  entities/  Boat, Fish, FishingRod, Bobber, Birds, Wake (ribbon + bow spray)
   gameplay/  FishingSystem, CatchTable, Inventory, Progression, Journal
   render/    PostFX, Materials, LODManager, EnvironmentProbe, CSM
   shaders/   *.vert *.frag *.glsl

@@ -26,6 +26,21 @@ uniform float uIntensity;
 /** Direction of the observer's zenith in the same equatorial frame, for horizon extinction. */
 uniform vec3 uZenithEquatorial;
 
+/**
+ * Peak surface radiance of the band, cd/m².
+ *
+ * Everything else in this project is in real units and this was not: the band came out of the
+ * profile terms as a number around 1.0 and was written straight to the framebuffer, so it was
+ * being drawn at one candela per square metre — about the brightness of deep twilight. The
+ * brightest part of the real Milky Way, the star clouds around Sagittarius, is 21.5 magnitudes
+ * per square arcsecond, which is 2.6e-4 cd/m². That is four thousand times less, the same order
+ * as the airglow the sky shader adds, and about a thousandth of a full-moon sky.
+ *
+ * At four thousand times too bright it blew a third of the night sky to flat white at any
+ * exposure that left the sea visible, which is most of what "the night frame is broken" was.
+ */
+const float MILKY_WAY_PEAK_RADIANCE = 2.6e-4;
+
 // IAU 1958 galactic pole, precessed to J2000.
 const float NGP_RA = 3.36603292;      // 192.85948 degrees
 const float NGP_DEC = 0.473478800;    // 27.12825 degrees
@@ -106,7 +121,10 @@ void main() {
   // Integrated starlight is slightly warm-white; the dust reddens what shines through it.
   vec3 tint = mix(vec3(0.78, 0.82, 1.0), vec3(1.0, 0.86, 0.68), dust * 0.7);
 
-  float alpha = brightness * extinction * uNightFactor * uIntensity;
-  if (alpha <= 0.0005) discard;
-  gl_FragColor = vec4(tint * alpha, 1.0);
+  // The cull threshold is on the dimensionless profile, not on the radiance: scaling the output
+  // into physical units would otherwise put every fragment under any absolute threshold and
+  // discard the whole band.
+  float profile = brightness * extinction * uNightFactor * uIntensity;
+  if (profile <= 0.002) discard;
+  gl_FragColor = vec4(tint * profile * MILKY_WAY_PEAK_RADIANCE, 1.0);
 }
