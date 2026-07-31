@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "recipe": 1,
+  "materials": [
+    {
+      "id": "WoodFloor043",
+      "role": "deck planking, varnished",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 512,
+      "stretched": true,
+      "maps": {
+        "albedo": "textures/WoodFloor043/albedo.webp",
+        "normal": "textures/WoodFloor043/normal.webp",
+        "orm": "textures/WoodFloor043/orm.webp",
+        "height": "textures/WoodFloor043/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "measured",
+      "digest": "3f7793cdb11828ee81cdfb107a530c1a14918ba4415857e86dce5738599c6448",
+      "bytes": 246858
+    },
+    {
+      "id": "Wood066",
+      "role": "hull planking, painted and weathered",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Wood066/albedo.webp",
+        "normal": "textures/Wood066/normal.webp",
+        "orm": "textures/Wood066/orm.webp",
+        "height": "textures/Wood066/height.webp"
+      },
+      "occlusion": "default",
+      "metalness": "default",
+      "digest": "fe885703822edfeb5e06aa2a33b955f3d73a79a71628fa998a69e13d17114860",
+      "bytes": 591744
+    },
+    {
+      "id": "Planks023A",
+      "role": "cabin and jetty timber",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Planks023A/albedo.webp",
+        "normal": "textures/Planks023A/normal.webp",
+        "orm": "textures/Planks023A/orm.webp",
+        "height": "textures/Planks023A/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "measured",
+      "digest": "e52658f3c29cd35c068a5dc5ce18717569dfd393908e951a0ae3e2ca2378c347",
+      "bytes": 516944
+    },
+    {
+      "id": "Metal063",
+      "role": "rusted metal — fittings, chain, wreck plate",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Metal063/albedo.webp",
+        "normal": "textures/Metal063/normal.webp",
+        "orm": "textures/Metal063/orm.webp",
+        "height": "textures/Metal063/height.webp"
+      },
+      "occlusion": "default",
+      "metalness": "measured",
+      "digest": "aa5ffd5626133a1dd6fa04544d2de0edb4ef65cfce1a60eda7d4bd79dd5a48b3",
+      "bytes": 872334
+    },
+    {
+      "id": "Metal032",
+      "role": "brushed metal — cleats, rails, engine cowl",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Metal032/albedo.webp",
+        "normal": "textures/Metal032/normal.webp",
+        "orm": "textures/Metal032/orm.webp",
+        "height": "textures/Metal032/height.webp"
+      },
+      "occlusion": "default",
+      "metalness": "measured",
+      "digest": "1a2bf4a26dcd3ab76e00d9ae71bda25c92c6d3e1d70b35d5014e8b3d66ddd25f",
+      "bytes": 115136
+    },
+    {
+      "id": "PaintedMetal006",
+      "role": "buoy and hull paint",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/PaintedMetal006/albedo.webp",
+        "normal": "textures/PaintedMetal006/normal.webp",
+        "orm": "textures/PaintedMetal006/orm.webp",
+        "height": "textures/PaintedMetal006/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "measured",
+      "digest": "62f09a917cb1c0e747221a2533a2ccfac17e3f550c667fba92899d46cc905735",
+      "bytes": 1143102
+    },
+    {
+      "id": "Rope001",
+      "role": "mooring rope and rigging",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 512,
+      "stretched": true,
+      "maps": {
+        "albedo": "textures/Rope001/albedo.webp",
+        "normal": "textures/Rope001/normal.webp",
+        "orm": "textures/Rope001/orm.webp",
+        "height": "textures/Rope001/height.webp"
+      },
+      "occlusion": "default",
+      "metalness": "measured",
+      "digest": "7df156a831dbe40f36c8d008b6c1446d9fac8065e34d0b15bef537b8287187b4",
+      "bytes": 468510
+    },
+    {
+      "id": "Fabric030",
+      "role": "canvas — flag, awning, tarpaulin",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Fabric030/albedo.webp",
+        "normal": "textures/Fabric030/normal.webp",
+        "orm": "textures/Fabric030/orm.webp",
+        "height": "textures/Fabric030/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "default",
+      "digest": "bfee8b770b6e6fe45163b932d35ca209536e35a179c4a4df86215f7f1c5ac7d3",
+      "bytes": 2086812
+    },
+    {
+      "id": "Ground054",
+      "role": "beach sand, dry and wet",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Ground054/albedo.webp",
+        "normal": "textures/Ground054/normal.webp",
+        "orm": "textures/Ground054/orm.webp",
+        "height": "textures/Ground054/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "default",
+      "digest": "3ac18ccdab8f51bbada1e737955e5192da13b7d0c10845afad9fa585bfd5f07e",
+      "bytes": 1050402
+    },
+    {
+      "id": "Rock064",
+      "role": "cliff and shoreline rock",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Rock064/albedo.webp",
+        "normal": "textures/Rock064/normal.webp",
+        "orm": "textures/Rock064/orm.webp",
+        "height": "textures/Rock064/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "default",
+      "digest": "2284ec0b22ca912a3633dcf5ccc7d2900b98b8e0c6cf25fd8cfec45cb0bb626e",
+      "bytes": 982670
+    },
+    {
+      "id": "Bark014",
+      "role": "tree bark",
+      "size": 1024,
+      "sourceWidth": 1024,
+      "sourceHeight": 1024,
+      "stretched": false,
+      "maps": {
+        "albedo": "textures/Bark014/albedo.webp",
+        "normal": "textures/Bark014/normal.webp",
+        "orm": "textures/Bark014/orm.webp",
+        "height": "textures/Bark014/height.webp"
+      },
+      "occlusion": "measured",
+      "metalness": "default",
+      "digest": "da94380e02bc504f07e758b5df9975dcf20ee05e14e5efe05c9135d50948b41c",
+      "bytes": 1158570
+    }
+  ],
+  "moon": {
+    "albedo": "moon/albedo.webp",
+    "normal": "moon/normal.webp",
+    "width": 2048,
+    "height": 1024,
+    "reliefExaggeration": 3,
+    "digest": "6646be8b2846b59159e716d385743e647449925c6ccced0400498f7f4a51bc0b",
+    "bytes": 1057374
+  },
+  "stars": {
+    "file": "stars/bsc5.bin",
+    "count": 8404,
+    "magnitudeLimit": 6.5,
+    "brightest": -1.46,
+    "faintest": 6.5,
+    "colourDefaulted": 244,
+    "digest": "7e6489d83a69a702aa551a8eac5dfbc16aed799e46b4d17b1e9ad46ffb13ecad",
+    "bytes": 100864
+  },
+  "totalBytes": 10391320
+}

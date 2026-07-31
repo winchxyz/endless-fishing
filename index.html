@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Endless ocean fishing under a physically correct sky, driven by your real clock and location."
+    />
+    <title>Endless Fishing</title>
+    <link rel="icon" href="data:," />
+    <script type="module" crossorigin src="/endless-fishing/assets/index-DUpHSu8K.js"></script>
+    <link rel="modulepreload" crossorigin href="/endless-fishing/assets/post-DxR2avLD.js">
+    <link rel="modulepreload" crossorigin href="/endless-fishing/assets/three-BKfuGixh.js">
+    <link rel="stylesheet" crossorigin href="/endless-fishing/assets/index-No-x_cfA.css">
+  </head>
+  <body>
+    <div id="viewport">
+      <canvas id="scene"></canvas>
+    </div>
+
+    <div id="ui-root" aria-live="polite"></div>
+
+    <div id="loading" class="loading">
+      <div class="loading__inner">
+        <h1 class="loading__title">Endless Fishing</h1>
+        <p class="loading__subtitle">
+          An open sea under the sky that is actually above you right now.
+        </p>
+        <div class="loading__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div class="loading__fill" id="loading-fill"></div>
+        </div>
+        <p class="loading__status" id="loading-status">Starting engine</p>
+      </div>
+    </div>
+
+    <noscript>
+      <div class="fatal">
+        <h2>JavaScript required</h2>
+        <p>This is a real-time WebGL2 renderer. It cannot run without scripting enabled.</p>
+      </div>
+    </noscript>
+
+  </body>
+</html>
