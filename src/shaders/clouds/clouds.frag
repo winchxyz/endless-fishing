@@ -104,6 +104,23 @@ vec4 ef_volume(sampler2D tex, vec3 uvw, vec3 atlas, vec2 texel) {
   return mix(a, b, f);
 }
 
+/**
+ * Transmittance on its way into the buffer, with NaN turned into "no cloud".
+ *
+ * The cloud buffer is premultiplied and the blend state composites it as
+ * `dst = src.rgb + dst * src.a`, so alpha is a *multiplier on the sky behind it*. `hdrClamp`
+ * strips NaN from the colour, but nothing guarded the alpha — and `saturate(NaN)` collapses to
+ * zero on this driver, which multiplies the destination by zero and punches the sky to black.
+ * That is the speckle: not dark cloud, but individual pixels where the march produced a NaN at
+ * a grazing angle and the compositor obediently erased everything behind them.
+ *
+ * NaN resolves to 1.0 — fully transparent. Losing a pixel of cloud is invisible; erasing a
+ * pixel of sky is not.
+ */
+float ef_safeTransmittance(float t) {
+  return (t == t) ? clamp(t, 0.0, 1.0) : 1.0;
+}
+
 float ef_blueNoise(vec2 fragCoord) {
   return texture2DLodEXT(uBlueNoise, (fragCoord + 0.5) * uBlueNoiseTexel, 0.0).r;
 }
@@ -437,7 +454,7 @@ void main() {
     scatter = mix(scatter, airLight * (1.0 - transmittance), fade);
   }
 
-  gl_FragColor = vec4(hdrClamp(scatter), saturate(transmittance));
+  gl_FragColor = vec4(hdrClamp(scatter), ef_safeTransmittance(transmittance));
 }
 
 #endif
@@ -450,8 +467,10 @@ uniform sampler2D uCloudBuffer;
 void main() {
   // Premultiplied scattering in rgb, transmittance in alpha, straight back out. The blend state
   // does the compositing: dst = src.rgb + dst * src.a.
+  // Guarded again on the way out: the half-float buffer can carry a NaN written before this
+  // frame's march, and bilinear filtering spreads one bad texel across four output pixels.
   vec4 cloud = texture2DLodEXT(uCloudBuffer, vUv, 0.0);
-  gl_FragColor = vec4(hdrClamp(cloud.rgb), saturate(cloud.a));
+  gl_FragColor = vec4(hdrClamp(cloud.rgb), ef_safeTransmittance(cloud.a));
 }
 
 #endif
