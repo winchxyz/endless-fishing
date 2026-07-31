@@ -46,7 +46,7 @@ npm run lint       # tsc --noEmit
 src/
   core/      Engine, Renderer, Loop, Input, Time, ResourceManager, Settings
   astro/     SolarPosition, LunarPosition, SiderealTime, StarCatalog, Refraction, AstroTime
-  world/     Ocean, Sky, Atmosphere, Weather, Islands, Tides, Props
+  world/     Ocean, Sky, Atmosphere, Weather, Clouds, Rain, Islands, Tides, Props
   entities/  Boat, Fish, FishingRod, Bobber, Birds, Wake (ribbon + bow spray)
   gameplay/  FishingSystem, CatchTable, Inventory, Progression, Journal
   render/    PostFX, Materials, LODManager, EnvironmentProbe, CSM

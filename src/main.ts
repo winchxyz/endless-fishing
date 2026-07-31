@@ -11,6 +11,7 @@ import { Ocean } from './world/Ocean.js';
 import { Tides } from './world/Tides.js';
 import { Weather } from './world/Weather.js';
 import { Clouds } from './world/Clouds.js';
+import { Rain } from './world/Rain.js';
 import { PostFX } from './render/PostFX.js';
 import { MaterialLibrary } from './render/Materials.js';
 import { Boat } from './entities/Boat.js';
@@ -128,6 +129,11 @@ async function boot(): Promise<void> {
   const fish = new Fish(engine, ocean, seabed, boat);
   fish.setOptics(underwater);
   engine.add(fish);
+
+  // What the weather has been publishing since it was written and nothing was drawing. It goes in
+  // after the boat so the lattice re-centres on the camera's *current* position rather than on
+  // last frame's, and before the composer, which has to see it.
+  engine.add(new Rain(engine));
 
   // Gulls circle whatever the fish are doing; with no locator they fall back to the boat, which
   // is a worse tell but never a wrong one.

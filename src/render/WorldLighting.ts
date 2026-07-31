@@ -117,6 +117,14 @@ export function updateWorldLight(
   setNumber(uniforms, 'uSunIlluminance', (ephemeris.sunIlluminanceLux / Math.PI) * blocked);
   setNumber(uniforms, 'uMoonIlluminance', (ephemeris.moonIlluminanceLux / Math.PI) * blocked);
   setNumber(uniforms, 'uEnvironmentIntensity', 1);
+
+  // Meteorological visibility, which drives `ef_aerialPerspective` in `worldlight.glsl`.
+  //
+  // This was declared, defaulted to 25 km, and then never written — so every island, prop, bird,
+  // fish and droplet in the game has been sitting in the same fixed haze since the uniform was
+  // added, whatever the weather said. It is why a pinned storm with the visibility down to 1.4 km
+  // still showed a razor-sharp horizon and an island twelve kilometres away.
+  setNumber(uniforms, 'uVisibility', world.visibility);
 }
 
 function setNumber(uniforms: UniformMap, name: string, value: number): void {

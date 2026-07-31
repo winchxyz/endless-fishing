@@ -50,12 +50,24 @@ const OPEN_WATER_DEPTH = 55;
  *
  * The sea has to extend past the horizon or a wedge of below-horizon sky shows between the water
  * and the sky — the horizon band. With curvature applied in the vertex shader the surface folds
- * away beyond sqrt(2 * eyeHeight * R), so "past the horizon" means past the horizon of the
- * highest eye the camera can reach: the orbit camera tops out around twenty metres, which puts
- * its horizon at sixteen kilometres. Rings beyond that are hidden behind nearer water and cost
- * nothing but a handful of triangles, whereas one ring short is a line across every frame.
+ * away beyond sqrt(2·h·R), so "past the horizon" means past the horizon of the highest eye the
+ * camera can reach.
+ *
+ * Thirty-two kilometres rather than sixteen, and the difference is one ring. Sixteen was sized
+ * for the orbit camera's twenty metres, which is the right number for a calm — and wrong for the
+ * sea the boat is actually in when it matters. A Beaufort 9 has a significant wave height of
+ * twelve metres, the chase camera rides a crest, and `floatClearOfCrest` lifts it clear of
+ * whatever is under it: the eye passes thirty metres, its horizon goes past twenty kilometres,
+ * and the strip between the last ring and the true horizon fills with the clear-sky table's blue
+ * — a hard blue line across the whole frame, in the one condition the sea is most worth looking
+ * at. It is in the committed force 9 screenshot.
+ *
+ * Each ring doubles the radius, so buying the whole of that failure mode back costs exactly one
+ * more block of geometry at the same vertex count as every other ring, and it is hidden behind
+ * nearer water in every frame that does not need it. Thirty-two kilometres covers an eye at
+ * eighty metres.
  */
-const HORIZON_REACH_M = 16000;
+const HORIZON_REACH_M = 32000;
 
 export class Ocean implements System {
   readonly name = 'ocean';
@@ -130,6 +142,7 @@ export class Ocean implements System {
         uSeabedDepth: { value: OPEN_WATER_DEPTH },
         uTurbidity: { value: 0.15 },
         uFoamAmount: { value: 1 },
+        uVisibility: { value: 25000 },
         uRefraction: { value: this.refraction.texture },
         uResolution: { value: new Vector2(1, 1) },
         uRefractionStrength: { value: 0.06 },
@@ -239,6 +252,7 @@ export class Ocean implements System {
     setNumber(uniforms, 'uWaterLevel', this.waterLevel);
     setNumber(uniforms, 'uWindSpeed', world.windSpeed);
     setNumber(uniforms, 'uFoamAmount', 1);
+    setNumber(uniforms, 'uVisibility', world.visibility);
 
     const centre = uniforms['uRingCentre'];
     if (centre !== undefined) {

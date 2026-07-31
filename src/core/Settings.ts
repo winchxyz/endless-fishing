@@ -213,7 +213,20 @@ const PRESETS: Record<QualityPreset, Omit<GraphicsSettings, 'anisotropy'>> = {
 
 export type SettingsListener = (settings: AllSettings, changed: keyof AllSettings) => void;
 
-const STORAGE_KEY = 'endless-fishing/settings/v1';
+/**
+ * Versioned, and the version is load-bearing.
+ *
+ * `load()` restores the stored `graphics` blob wholesale, so a change to a preset default never
+ * reaches anyone who has already run the game — their v1 payload puts the old value straight back
+ * over the top of it. That is how the measured decision to default chromatic aberration off would
+ * have shipped to new players only. A default that cannot reach an existing installation is not a
+ * default, it is a comment.
+ *
+ * Bumping the key discards the old payload rather than migrating it. That is the right trade
+ * here: the only things stored are quality knobs, a volume and a position, all of them a few
+ * seconds to set again, and a migration table is a second place for the preset defaults to live.
+ */
+const STORAGE_KEY = 'endless-fishing/settings/v2';
 
 /** Fallback location if geolocation is denied and the timezone lookup misses. */
 export const DEFAULT_LATITUDE_DEG = 32.08;

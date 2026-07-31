@@ -70,7 +70,7 @@ async function until(
   while (Date.now() < deadline) {
     const snap = await snapshot(page);
     if (predicate(snap)) return snap;
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(120);
   }
   return null;
 }
@@ -141,6 +141,21 @@ async function main(): Promise<void> {
   }
   note(`bite: state ${bite.state}`);
 
+  // Strike. `bite` is not a state you reel out of — the fish has the bait and the hook is not in
+  // it, and `FishingSystem` only takes `bite → fighting` on a primary press. Without this the
+  // harness held `r` through the whole window and reported the fish coming off as if the game had
+  // dropped it, when what it had actually done was model a player who never struck.
+  if (bite.state === 'bite') {
+    await page.mouse.click(640, 360);
+    const hooked = await until(page, 6000, (s) => s.state === 'fighting');
+    if (hooked === null) {
+      note('INCONCLUSIVE: struck, and the fish was gone before the hook went in.');
+      await finish(0);
+      return;
+    }
+    note('hooked: state fighting');
+  }
+
   // Reel. Not held down flat: the line breaks if the tension is pinned, so this is the same
   // on-off rhythm a player uses — pull when it is running, ease when it is not.
   const fightDeadline = Date.now() + FIGHT_TIMEOUT_MS;
@@ -157,11 +172,16 @@ async function main(): Promise<void> {
     }
     // Pump and wind, the way it is actually done: haul while the tension is low, give line the
     // moment it climbs. Reeling flat out pins the tension and the line parts; reeling too timidly
-    // lets the fish throw the hook. The band is deliberately wide of the danger line, because
-    // this loop only samples twice a second and a run can start between two samples.
-    if (snap.tension < 0.4) await page.keyboard.down('r');
+    // lets the fish throw the hook.
+    //
+    // The cadence matters more than the band does. At two samples a second this loop lost every
+    // fish it hooked — a run starts and finishes between samples, and by the time it sees the
+    // tension the hook is already out. A hundred and twenty milliseconds is about a player's
+    // reaction time and is what makes the harness a test of the game rather than of its own
+    // polling rate. The band still sits well inside the danger line for the same reason.
+    if (snap.tension < 0.52) await page.keyboard.down('r');
     else await page.keyboard.up('r');
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(120);
   }
   await page.keyboard.up('r').catch(() => undefined);
 

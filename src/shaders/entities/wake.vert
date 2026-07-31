@@ -101,7 +101,16 @@ void main() {
   // Taper the end of the ribbon, wherever that end currently is: the oldest rows of a full buffer
   // are about to be recycled, and the rows past `uValidRows` in a buffer the boat has not filled
   // yet were never laid at all. Both must go to nothing before they are reached.
-  float tailFade = 1.0 - smoothstep(uValidRows * 0.86, uValidRows, row);
+  //
+  // The gate is not defensive padding. `uValidRows` is exactly zero for the first 0.7 m after the
+  // track is seeded — and the boat starts making a wake at 0.3 m/s, which it reaches in under a
+  // tenth of a metre — so during that window the head row, whose `row` is exactly 0.0, evaluates
+  // `smoothstep(0.0, 0.0, 0.0)`. That is a literal 0/0. GLSL leaves `clamp` of a NaN
+  // implementation-defined, `vFade <= 0.002` does not reject it because every comparison against
+  // a NaN is false, and it arrives at a premultiplied blend as an alpha: `dst * (1 - NaN)` erases
+  // the frame behind the transom. It is the same mechanism as the cloud speckle, one shader over.
+  float validEnd = max(uValidRows, 1e-4);
+  float tailFade = step(1e-4, uValidRows) * (1.0 - smoothstep(validEnd * 0.86, validEnd, row));
   // Wave-making rises steeply with speed and there is nothing at all at a drift. The saturating
   // form is the Froude number's own shape: past hull speed the hull cannot make a bigger wave,
   // it can only climb its own bow wave.

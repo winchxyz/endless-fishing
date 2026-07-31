@@ -429,7 +429,11 @@ export class Wake implements System {
     // been rasterised. A boat on a mooring leaves the ribbon covering a good part of the frame
     // for nothing, so once the last of it is older than its own lifetime the mesh goes away.
     if (speed > 0.3) this.lastWakeTime = simTime;
-    this.ribbon.visible = simTime - this.lastWakeTime < WAKE_LIFETIME_S;
+    // The second condition is not belt and braces. Until a row has actually been laid the whole
+    // track is collapsed onto the transom, so the ribbon has zero area and there is nothing to
+    // draw — and it is also the window in which `uValidRows` is zero, which makes the tail
+    // taper's smoothstep degenerate. Not drawing it removes the case rather than surviving it.
+    this.ribbon.visible = this.laidRows > 0 && simTime - this.lastWakeTime < WAKE_LIFETIME_S;
 
     const uniforms = this.ribbonMaterial.uniforms;
     setNumber(uniforms, 'uWaveTime', simTime);

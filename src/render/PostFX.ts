@@ -116,6 +116,15 @@ export class PostFX implements System {
   private readonly chromaticAberration: ChromaticAberrationEffect;
   private readonly smaa: SMAAEffect;
   private effectPasses: EffectPass[] = [];
+  /**
+   * Passes taken out of the chain by a settings change, kept until teardown.
+   *
+   * They cannot be disposed when they are removed, because that would dispose the shared effects
+   * they hold. Holding them costs one fullscreen material each — a settings change is a user
+   * action, not something that happens in the frame loop — and it means `dispose()` can release
+   * every one of them exactly once, at the point where disposing the effects is also correct.
+   */
+  private readonly retiredPasses: EffectPass[] = [];
   private readonly renderPass: RenderPass;
 
   /** Smoothed exposure, so a settings change or a time jump does not flash. */
@@ -208,6 +217,11 @@ export class PostFX implements System {
   }
 
   dispose(): void {
+    // The retired passes first, and only here: disposing an `EffectPass` disposes the effects it
+    // holds, which is wrong on a settings change and exactly right at teardown. Each effect is
+    // held by at most one pass at a time, so nothing is disposed twice.
+    for (const pass of this.retiredPasses) pass.dispose();
+    this.retiredPasses.length = 0;
     this.composer.dispose();
   }
 
@@ -226,10 +240,17 @@ export class PostFX implements System {
    * lie about one.
    */
   private rebuildPasses(engine: Engine): void {
-    for (const pass of this.effectPasses) {
-      this.composer.removePass(pass);
-      pass.dispose();
-    }
+    // Removed, and deliberately NOT disposed.
+    //
+    // `EffectPass.dispose()` disposes the EFFECTS it holds, and every effect in this class is a
+    // long-lived instance the lines below put straight back into a new pass. Disposing the pass
+    // therefore freed the GPU resources of bloom, tone mapping, the grade and SMAA on every
+    // settings change and handed the new passes effects that had already been released. There is
+    // no public way to empty a pass first — `effects` is private in pmndrs v6 — so the pass's own
+    // fullscreen material is released in `dispose()` below instead, where the effects are being
+    // torn down anyway and disposing them is the correct thing rather than a bug.
+    for (const pass of this.effectPasses) this.composer.removePass(pass);
+    this.retiredPasses.push(...this.effectPasses);
     this.effectPasses = [];
 
     const graphics = engine.settings.graphics;

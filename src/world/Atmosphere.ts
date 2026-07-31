@@ -67,6 +67,9 @@ export class Atmosphere {
   private readonly transmittanceTarget: WebGLRenderTarget;
   private readonly multiScatterTarget: WebGLRenderTarget;
   private readonly skyViewTarget: WebGLRenderTarget;
+  /** Readback scratch. Allocated once: the meter reads these several times a second. */
+  private readonly texelBuffer = new Uint16Array(4);
+  private readonly rowBuffer = new Uint16Array(SKYVIEW_WIDTH * 4);
 
   private readonly transmittanceMaterial: ShaderMaterial;
   private readonly multiScatterMaterial: ShaderMaterial;
@@ -194,13 +197,42 @@ export class Atmosphere {
   sampleSkyView(renderer: WebGLRenderer, u: number, v: number): [number, number, number] {
     const x = Math.max(0, Math.min(SKYVIEW_WIDTH - 1, Math.round(u * (SKYVIEW_WIDTH - 1))));
     const y = Math.max(0, Math.min(SKYVIEW_HEIGHT - 1, Math.round(v * (SKYVIEW_HEIGHT - 1))));
-    const pixel = new Uint16Array(4);
-    renderer.readRenderTargetPixels(this.skyViewTarget, x, y, 1, 1, pixel);
+    renderer.readRenderTargetPixels(this.skyViewTarget, x, y, 1, 1, this.texelBuffer);
     return [
-      DataUtils.fromHalfFloat(pixel[0] ?? 0),
-      DataUtils.fromHalfFloat(pixel[1] ?? 0),
-      DataUtils.fromHalfFloat(pixel[2] ?? 0),
+      DataUtils.fromHalfFloat(this.texelBuffer[0] ?? 0),
+      DataUtils.fromHalfFloat(this.texelBuffer[1] ?? 0),
+      DataUtils.fromHalfFloat(this.texelBuffer[2] ?? 0),
     ];
+  }
+
+  /**
+   * Mean luminance of one whole row of the sky-view table, in the table's own units.
+   *
+   * A row is a full turn of azimuth at one elevation, so this is the azimuthal average of the sky
+   * at that height — and the exposure meter needs the average, not a sample.
+   *
+   * The table is parameterised on azimuth *from the sun*, so `u = 0.5` is the anti-solar point.
+   * Metering three texels at `u = 0.5` was therefore metering the darkest meridian in the sky, and
+   * at twilight the darkest meridian is nothing like the mean: the western horizon is running at
+   * ten times the eastern one. The meter opened up for the dark half and the bright half went
+   * through white — which is what turned a civil twilight into a flat magenta wash with no
+   * gradient in it, the sky reading 1.53 where a photographer would have put it near 0.7.
+   *
+   * One `readRenderTargetPixels` for a hundred and ninety-two texels costs the same single
+   * pipeline flush that reading one costs, and the buffer is allocated once, so the exact answer
+   * is cheaper here than four more samples would have been.
+   */
+  meanSkyViewRowLuminance(renderer: WebGLRenderer, v: number): number {
+    const y = Math.max(0, Math.min(SKYVIEW_HEIGHT - 1, Math.round(v * (SKYVIEW_HEIGHT - 1))));
+    renderer.readRenderTargetPixels(this.skyViewTarget, 0, y, SKYVIEW_WIDTH, 1, this.rowBuffer);
+    let sum = 0;
+    for (let x = 0; x < SKYVIEW_WIDTH; x += 1) {
+      const r = DataUtils.fromHalfFloat(this.rowBuffer[x * 4] ?? 0);
+      const g = DataUtils.fromHalfFloat(this.rowBuffer[x * 4 + 1] ?? 0);
+      const b = DataUtils.fromHalfFloat(this.rowBuffer[x * 4 + 2] ?? 0);
+      sum += Math.max(0, 0.2126 * r + 0.7152 * g + 0.0722 * b);
+    }
+    return sum / SKYVIEW_WIDTH;
   }
 
   dispose(): void {

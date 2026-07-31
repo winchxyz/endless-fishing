@@ -86,4 +86,21 @@ vec3 hdrClamp(vec3 colour) {
   return clamp(safe, vec3(0.0), vec3(60000.0));
 }
 
+/**
+ * The alpha-channel half of `hdrClamp`, and it is not optional on a premultiplied blend.
+ *
+ * `dst' = src + dst·(1 − src.a)` means a NaN alpha does not merely fail to cover what is behind
+ * it — it *erases* it, and bloom then averages that NaN across its whole mip chain. Every
+ * material in this project that writes an alpha blends that way, and until now only the colour
+ * was ever guarded: the cloud layer needed its own `ef_safeTransmittance` for exactly this, and
+ * the wake and the spray had nothing at all.
+ *
+ * Zero rather than one, unlike the cloud's guard: these are additive-over materials where alpha
+ * is coverage, so a bad sample should cover nothing. The cloud's alpha is a transmittance, where
+ * the safe answer is the opposite.
+ */
+float hdrClampAlpha(float alpha) {
+  return clamp(alpha == alpha ? alpha : 0.0, 0.0, 1.0);
+}
+
 #endif

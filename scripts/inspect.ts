@@ -15,6 +15,8 @@ import sharp from 'sharp';
  *          and blue while red held, which no post-processing effect in the chain can produce, and
  *          that ruled out the whole lens.
  *
+ *   peak   The brightest single pixel in a region, and where it is.
+ *
  *   crop   Extract a region and magnify it with a nearest-neighbour filter, so a zoom shows the
  *          pixels rather than an interpolation of them.
  *
@@ -69,6 +71,38 @@ async function crop(
   process.stdout.write(`${out}\n`);
 }
 
+/**
+ * The brightest single pixel in a region, and where it is.
+ *
+ * `rows` averages, and an average is the wrong instrument for a two-pixel artefact: twenty blobs
+ * three pixels wide, diluted across six hundred columns, read as nothing at all. Several rounds
+ * of A/B on the night horizon were wasted on exactly that mistake — a feature that was plainly in
+ * the picture measured as absent, and a row that measured bright turned out to be a different
+ * feature entirely.
+ */
+async function peak(file: string, y0: number, y1: number, x0: number, x1: number): Promise<void> {
+  const { data, info } = await sharp(resolve(file)).raw().toBuffer({ resolveWithObject: true });
+  const channels = info.channels;
+  let best = -1;
+  let at = { x: 0, y: 0, r: 0, g: 0, b: 0 };
+  for (let y = Math.max(0, y0); y <= Math.min(info.height - 1, y1); y += 1) {
+    for (let x = Math.max(0, x0); x < Math.min(info.width, x1); x += 1) {
+      const i = (y * info.width + x) * channels;
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      if (luminance > best) {
+        best = luminance;
+        at = { x, y, r, g, b };
+      }
+    }
+  }
+  process.stdout.write(
+    `peak luminance ${best.toFixed(1)} at (${at.x}, ${at.y}) = ${at.r}, ${at.g}, ${at.b}\n`,
+  );
+}
+
 function number(value: string | undefined, name: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number, got ${String(value)}`);
@@ -81,6 +115,16 @@ async function main(): Promise<void> {
 
   if (command === 'rows') {
     await rows(
+      file,
+      number(rest[1], 'y0'),
+      number(rest[2], 'y1'),
+      number(rest[3], 'x0'),
+      number(rest[4], 'x1'),
+    );
+    return;
+  }
+  if (command === 'peak') {
+    await peak(
       file,
       number(rest[1], 'y0'),
       number(rest[2], 'y1'),
@@ -103,7 +147,7 @@ async function main(): Promise<void> {
     );
     return;
   }
-  throw new Error(`Unknown command ${String(command)}. Expected \`rows\` or \`crop\`.`);
+  throw new Error(`Unknown command ${String(command)}. Expected \`rows\`, \`peak\` or \`crop\`.`);
 }
 
 main().catch((error: unknown) => {

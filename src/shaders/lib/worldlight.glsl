@@ -14,6 +14,7 @@
 #define ENDLESS_FISHING_WORLDLIGHT
 
 #include /lib/constants.glsl
+#include /lib/airlight.glsl
 
 uniform vec3 uSunDirection;
 uniform vec3 uSunColour;
@@ -114,8 +115,7 @@ vec3 ef_shadeSurface(vec3 albedo, vec3 N, vec3 V, float roughness, float occlusi
 vec3 ef_aerialPerspective(vec3 colour, float distanceToCamera, vec3 V) {
   float extinction = 3.912 / max(200.0, uVisibility);
   float t = 1.0 - exp(-extinction * distanceToCamera);
-  vec3 airLight = textureCubeLodEXT(uEnvironment, -V, 4.0).rgb * uEnvironmentIntensity;
-  return mix(colour, airLight, t);
+  return mix(colour, ef_airLight(uEnvironment, uEnvironmentIntensity, V), t);
 }
 
 #endif

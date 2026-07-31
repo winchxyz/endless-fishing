@@ -100,6 +100,33 @@ Ten open bugs closed, each verified on a rendered frame before it was called don
    marched **span** instead keeps `tFar > tNear` unconditionally and nothing is ever culled.
 10. **Weather opened pinned.** The pressure field now seeds itself under a ridge whatever the
     world seed is, so the override is gone and all eight states are reachable in normal play.
+11. **The bright line on the night horizon.** Not the water, which is where four rounds of work
+    looked: repainting every ocean fragment black left the line exactly where it was, one row of
+    sky above the sea's silhouette. It is the cloud march's aerial perspective. `ef_skyRadiance`
+    read the sky-view table with the raw ray direction, and the two horizon tests in that shader
+    do not agree to the microradian — `ef_hitsSea` uses the sea sphere through the camera's own
+    height, `intersectsGround` uses `GROUND_RADIUS` plus the observer altitude — so a band a
+    couple of milliradians deep, three pixels at this field of view, cleared the water and still
+    parameterised as below the horizon. There the table folds onto its ground-intersecting branch
+    and returns whatever the last write left. Those rays run a hundred and thirty kilometres, so
+    the fade replaces essentially all of their colour with that sample, and wherever cloud lay
+    along one, a cell-wide segment came back at sixty thousand candelas against a night sky of
+    2e-4. Clamping the elevation at the horizon fixes it: peak in the horizon band falls from
+    254.6 to 20, and the brightest pixel in the frame is now a first-magnitude star.
+12. **The weather was published and not drawn.** `precipitation` darkened the cloud base,
+    collapsed the visibility, opened the rain bed in the audio mix and desaturated the grade, and
+    nothing put a drop on the screen; the sea had no aerial perspective at all, so a 120 m fog
+    drew a horizon you could use as a straightedge; and the foam faded to nothing beyond three
+    kilometres, which took the whitecaps off a force 9 sea from three kilometres out. `world/Rain`
+    draws the drops, `ef_airLight` fogs the water on the same Koschmieder law as everything else,
+    and the far foam converges on Monahan's measured whitecap coverage instead of on zero.
+13. **The meter was reading the darkest meridian in the sky.** The sky-view table is
+    parameterised on azimuth *from the sun*, and the exposure meter sampled three texels at
+    `u = 0.5` — the anti-solar line. At twilight the western horizon runs an order of magnitude
+    above the eastern one, so the meter opened up for the dark half and pushed the bright half
+    through white: civil twilight rendered as a flat magenta wash with no gradient in it, sky at
+    1.53 where a photographer would put it near 0.7. Each sample is now the mean of a whole row,
+    which is a full turn of azimuth and the same single pipeline flush.
 
 ## Known issues
 
@@ -113,28 +140,5 @@ Ten open bugs closed, each verified on a rendered frame before it was called don
    warning. It is absent from production builds, where `checkShaderErrors` is off, and
    `npm run verify` now reports it separately from real console issues rather than failing on it.
    Anything containing `ERROR:` still fails the run.
-3. **A one-pixel bright line survives on the night horizon.** Measured with bloom, grain and the
-   grade switched off, at 2026-06-21T21:30Z: the sky above the horizon reads (11, 14, 16), the
-   sea below reads (9, 12, 16), and the single row between them reads (62, 64, 67) — about five
-   times either neighbour, and neutral rather than warm. It is invisible on its own; what makes
-   it worth recording is that bloom turns the segments of it that survive antialiasing into small
-   warm blobs, which near a coastline read as a line of harbour lights.
-
-   This is a *residual* of the horizon band, not the band: that was a fourteen-pixel notch at
-   every hour and it is gone. The remaining line only appears after dark. The leading hypothesis
-   is the water's grazing reflection: `R.y = max(R.y, 0.008)` pins every grazing ray onto one ring
-   of the environment cube, and the sky dome now fills the whole lower hemisphere with the horizon
-   radiance, so a mip-filtered sample there is flat where a correct one would fall away. Testing
-   it means dumping the probe's cube faces, which is the next thing to build.
-
-4. **A pinned weather state raises the sea but not the sky.** `scripts/media.ts` pins a state and
-   runs the world forward two and a half hours at 300x before capturing, which is far longer than
-   any of the model's time constants. The wind and the sea answer plainly — the force 9 capture
-   carries a long, heavy swell the calm ones do not — and `cloudiness` does not, so both weather
-   frames come out under a clear sky. The two README frames are therefore labelled by sea state,
-   which is what they actually show. Whatever carries the descriptor's cloud figure into
-   `WorldState.cloudiness` under an override is the thing to look at; the wind path through the
-   same descriptor plainly works.
-
-5. **`Fish`, `Weather`, `BoatGeometry` and several others are over the ~450-line smell
+3. **`Fish`, `Weather`, `BoatGeometry` and several others are over the ~450-line smell
    threshold.** `AudioBeds` has been split into it and `AudioCurves`; the older ones have not.

@@ -40,6 +40,15 @@ varying vec2 vUv;
 const float EARTH_RADIUS_M = 6371000.0;
 const float EARTH_RADIUS_SQ_M = 40589641000000.0;
 
+/**
+ * How far the regional field moves cover about its mean, at half cover.
+ *
+ * This is what makes a partly-cloudy day read as weather rather than as a tiling pattern: a break
+ * in the overcast drifts over and puts the sun back on the water. Nineteen points is about the
+ * spread a real broken sky shows between one twenty-kilometre cell and the next.
+ */
+const float COVER_SPREAD = 0.19;
+
 // --- the field ------------------------------------------------------------------------------
 
 /** 64³ Perlin-Worley volume, packed as an 8x8 grid of slices. R base, GBA Worley octaves. */
@@ -218,7 +227,18 @@ float ef_cloudDensity(vec3 world, float h, float detailStrength) {
   float regional = ef_volume(uShapeNoise, regionalUvw, uShapeLayout, uShapeTexel).r;
 
   float cover = uCoverage * (1.0 + uAnvil * smoothstep(0.58, 0.86, h) * 0.5);
-  cover = saturate(cover * mix(0.62, 1.38, regional));
+
+  // The regional variation is added, not multiplied, and it closes at both ends of the range.
+  //
+  // Multiplying by 0.62..1.38 sounds equivalent and is not: it scales the *whole* range, so a sky
+  // the weather system says is 98 per cent covered still had patches pulled down to 0.61, the
+  // deck never closed, and a pinned storm came out as blue sky with a Beaufort 9 sea under it.
+  // Real cover does not behave that way — a broken sky has a lot of spatial variation and a
+  // closed deck has almost none, because there is nothing left to vary. So the spread is widest
+  // at half cover and goes to zero as the sky clears or closes, which is what
+  // `1 - |2c - 1|` is.
+  float spread = mix(-COVER_SPREAD, COVER_SPREAD, regional) * (1.0 - abs(2.0 * cover - 1.0));
+  cover = saturate(cover + spread);
   // Not `<= 0.0`. The density remap below divides by `1.0 - (1.0 - cover)`, and in float32
   // `1.0 - cover` rounds to exactly 1.0 for every cover under 2⁻²⁵ — a window the coverage walks
   // through every time the weather damps the sky clear. Below a hundred-thousandth of a sky
@@ -227,7 +247,21 @@ float ef_cloudDensity(vec3 world, float h, float detailStrength) {
 
   float worley = shape.g * 0.625 + shape.b * 0.25 + shape.a * 0.125;
   float base = remap(shape.r, worley - 1.0, 1.0, 0.0, 1.0);
-  float density = remap(base * gradient, 1.0 - cover, 1.0, 0.0, 1.0) * cover;
+
+  // Fade the shape noise towards solid as the deck closes.
+  //
+  // `remap(base * gradient, 1 - cover, 1, 0, 1)` is the standard construction and it has one
+  // failure at the top of its range: at cover = 1 it reduces to the raw noise, so wherever the
+  // shape field happens to be low there is a hole, and the sky never closes however overcast the
+  // weather says it is. A third of the sky stayed blue under a pinned storm because of it.
+  //
+  // The fix is not a floor on the density, it is the observation that the noise should not be
+  // there at all by then: a broken sky is all contrast, and an overcast one is featureless
+  // because there is nothing left to break it up. The erosion below still works the surface, so
+  // a closed deck keeps its texture without keeping its holes.
+  float shapeContrast = 1.0 - smoothstep(0.6, 0.98, cover);
+  float solid = mix(1.0, base, shapeContrast);
+  float density = remap(solid * gradient, 1.0 - cover, 1.0, 0.0, 1.0) * cover;
   if (density <= 0.0) return 0.0;
 
   if (detailStrength > 0.0) {
@@ -307,10 +341,30 @@ const vec3 LIGHTNING_RADIANCE = vec3(0.86, 0.90, 1.0) * 120000.0;
 /**
  * Physical sky radiance in a direction, cd/m². Azimuth is measured from the sun's own azimuth,
  * because that is the axis the table is parameterised on.
+ *
+ * The elevation is clamped at the horizon, and that clamp is the whole reason a row of blown
+ * white segments used to sit on the night sea.
+ *
+ * The sky-view table is only meaningful above the horizon. Below it the parameterisation folds
+ * onto the ground-intersecting branch, where the table holds whatever the last write left and
+ * `uSkyIntensity` scales it like radiance regardless. A cloud ray is supposed to have been sent
+ * home before it can ask: `ef_hitsSea` returns "no cloud" for anything aimed at the water. But
+ * the two tests do not agree to the last microradian — `ef_hitsSea` uses the sea sphere through
+ * the camera's own height and this uses `GROUND_RADIUS` plus `uAltitudeKm` — and between them
+ * lies a band a couple of milliradians deep, three pixels at this field of view, of rays that
+ * clear the sea and still read as below the horizon here. Those rays run a hundred and thirty
+ * kilometres to the deck, so aerial perspective replaces essentially all of their colour with
+ * this sample; wherever cloud happened to lie along one, a cell-wide segment of the horizon
+ * came back at sixty thousand candelas against a night sky of two ten-thousandths.
+ *
+ * Clamping costs nothing where it does not apply and is what the geometry says everywhere else:
+ * the last thing a grazing ray sees before the sea cuts it off is the horizon.
  */
-vec3 ef_skyRadiance(vec3 direction) {
+vec3 ef_skyRadiance(vec3 rawDirection) {
   float radius = GROUND_RADIUS + max(0.0, uAltitudeKm);
   vec3 origin = vec3(0.0, radius, 0.0);
+  vec3 direction = normalize(vec3(rawDirection.x, max(rawDirection.y, 0.0), rawDirection.z) +
+                             vec3(EPS, 0.0, 0.0));
 
   vec2 viewFlat = normalize(vec2(direction.x, direction.z) + vec2(EPS));
   vec2 sunFlat = normalize(vec2(uSunDirection.x, uSunDirection.z) + vec2(EPS));
@@ -410,7 +464,21 @@ void main() {
     return;
   }
 
-  vec3 ambientAbove = ef_skyRadiance(vec3(0.0, 1.0, 0.0));
+  // What is over the deck.
+  //
+  // For a broken sky that is the sky: blue, and the table has it. For a closed one it is not —
+  // it is the tops of the cloud, in full sun, and a stratus sheet returns about seventy per cent
+  // of what falls on it. Reading the clear-sky table for both left an overcast deck lit by blue
+  // zenith light and, being lit by blue, coming out blue: a pinned storm rendered as a fine day
+  // with a Beaufort 9 sea under it, which was not the deck failing to draw — it drew, opaquely,
+  // in exactly the colour of the sky it was covering. Blending on coverage is the whole fix.
+  const float DECK_ALBEDO = 0.7;
+  vec3 clearAbove = ef_skyRadiance(vec3(0.0, 1.0, 0.0));
+  vec3 sunlitTops =
+      uSunColour * uSunIrradiance * INV_PI * DECK_ALBEDO * max(0.0, uSunDirection.y) +
+      uMoonColour * uMoonIrradiance * INV_PI * DECK_ALBEDO * max(0.0, uMoonDirection.y);
+  vec3 ambientAbove = mix(clearAbove, max(sunlitTops, clearAbove), uCoverage * uCoverage);
+
   // Below the deck there is the lower atmosphere and the sea, and open water returns about seven
   // per cent of what falls on it. Under a raining base almost none of that gets back up, which
   // is what takes a squall line to the near-black that makes it read as a squall line rather
@@ -480,10 +548,21 @@ void main() {
   // Aerial perspective. Koschmieder again, on the same visibility the weather system publishes,
   // so a cloud twenty kilometres out fades into the same haze the islands do — which is what
   // gives the deck its depth. Without it every cloud sits at the same distance.
+  //
+  // The airlight is the light the haze in between is *sitting in*, and under a closed deck that
+  // is not the blue sky — it is the underside of the cloud. Using the clear-sky table for it
+  // regardless of cover was the last reason a pinned storm rendered as a fine day: the deck was
+  // opaque, it composited correctly, and then this line replaced fifty-seven per cent of it with
+  // the colour of the sky it was covering. A frame with the resolve forced to paint red showed
+  // the whole sky red, which is what proved the cloud was there and being coloured away.
+  //
+  // The floor on visibility is 200 m rather than 3 km for the same reason `ef_aerialPerspective`
+  // uses 200: a storm publishes 1.4 km and a sea fog 120 m, and clamping those up to three
+  // kilometres throws away exactly the weather the player is supposed to notice.
   if (depthWeight > 1e-4) {
     float meanDistance = depthSum / depthWeight;
-    float fade = 1.0 - exp(-3.912 / max(3000.0, uVisibility) * meanDistance);
-    vec3 airLight = ef_skyRadiance(dir);
+    float fade = 1.0 - exp(-3.912 / max(200.0, uVisibility) * meanDistance);
+    vec3 airLight = mix(ef_skyRadiance(dir), ambientBelow, uCoverage * uCoverage);
     scatter = mix(scatter, airLight * (1.0 - transmittance), fade);
   }
 

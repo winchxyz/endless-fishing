@@ -38,13 +38,32 @@ const OUT_DIR = resolve(ROOT, 'screenshots');
  */
 const DEFAULT_PORT = 5199;
 
+/**
+ * How much faster than real time a pinned state is run forward before capturing.
+ *
+ * Cloud cover damps with a time constant near 170 s and the sea takes hours, so a pinned gale is
+ * still a calm a second later. Thirty seconds at this scale is two and a half hours of world
+ * time, which is enough for one to arrive properly rather than be asserted.
+ */
+const STATE_TIME_SCALE = 300;
+const STATE_FORWARD_MS = 30000;
+
 interface Options {
   port: number;
   times: string[];
   latitudeDeg: number;
   longitudeDeg: number;
   graphics: Record<string, unknown> | null;
+  /** Panorama family only — the sea is unaffected. */
   weather: string | null;
+  /**
+   * Synoptic state to pin, with the world run forward until it has actually arrived.
+   *
+   * `--weather` picks a photograph; this picks the weather. Pinning a state only sets a target,
+   * and cloud cover damps with a time constant near three minutes, so the run also fast-forwards
+   * the clock — otherwise a gale pinned a second ago is still a flat calm in the frame.
+   */
+  state: string | null;
   windSpeed: number | null;
   windDirectionDeg: number;
   preset: string | null;
@@ -65,6 +84,7 @@ function parseArgs(argv: string[]): Options {
     longitudeDeg: 34.78,
     graphics: null,
     weather: null,
+    state: null,
     windSpeed: null,
     windDirectionDeg: 0,
     preset: null,
@@ -94,6 +114,9 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--weather':
         options.weather = value;
+        break;
+      case '--state':
+        options.state = value;
         break;
       case '--wind': {
         const [speed, direction] = value.split(',');
@@ -210,6 +233,7 @@ async function capture(page: Page, iso: string, index: number): Promise<unknown>
       photometry: api.photometry(),
       ephemeris: api.ephemeris(),
       helm: api.helm(),
+      clouds: api.clouds(),
       stats: api.stats(),
     };
   });
@@ -271,6 +295,7 @@ async function main(): Promise<void> {
       if (setup.preset !== null) api.setPreset(setup.preset as never);
       if (setup.graphics !== null) api.setGraphics(setup.graphics as never);
       if (setup.weather !== null) api.setWeather(setup.weather as never);
+      if (setup.state !== null) api.setWeatherState(setup.state);
       if (setup.windSpeed !== null) api.setWind(setup.windSpeed, setup.windDirectionDeg);
       if (!setup.showUi) {
         const root = document.getElementById('ui-root');
@@ -283,11 +308,20 @@ async function main(): Promise<void> {
       preset: options.preset,
       graphics: options.graphics,
       weather: options.weather,
+      state: options.state,
       windSpeed: options.windSpeed,
       windDirectionDeg: options.windDirectionDeg,
       showUi: options.showUi,
     },
   );
+
+  // A pinned state is only a target. Run the clock hard until the field has actually walked to
+  // it, then hand the clock back — otherwise the frame shows the weather that was there before.
+  if (options.state !== null) {
+    await page.evaluate((scale) => window.endlessFishing?.setTimeScale(scale), STATE_TIME_SCALE);
+    await page.waitForTimeout(STATE_FORWARD_MS);
+    await page.evaluate(() => window.endlessFishing?.setTimeScale(1));
+  }
 
   const frames: unknown[] = [];
   for (const [index, iso] of options.times.entries()) {

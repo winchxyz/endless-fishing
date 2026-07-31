@@ -22,6 +22,7 @@
 precision highp float;
 
 #include /lib/constants.glsl
+#include /lib/airlight.glsl
 
 varying vec3 vWorldPosition;
 varying vec3 vNormal;
@@ -55,6 +56,8 @@ uniform float uSeabedDepth;
 /** 0 = clear offshore water, 1 = turbid coastal water. Interpolates the Jerlov coefficients. */
 uniform float uTurbidity;
 uniform float uFoamAmount;
+/** Meteorological visibility, metres. Koschmieder's law, same number the HUD shows. */
+uniform float uVisibility;
 uniform float uWaterLevel;
 
 // --- refraction -----------------------------------------------------------------------------
@@ -162,8 +165,17 @@ void main() {
   // pixel cannot represent. The energy is not thrown away: it comes back through the roughness
   // term below, which is the statistically correct place to put detail you cannot resolve.
   float unresolvedSlope = smoothstep(260.0, 2600.0, viewDistance);
-  vec3 geometricNormal =
-      normalize(mix(normalize(vNormal), vec3(0.0, 1.0, 0.0), unresolvedSlope * 0.88));
+  // The last twelve per cent goes too, over the kilometres beyond.
+  //
+  // Holding a residual slope keeps a little life in the mid-field, where a pixel still covers only
+  // a few wavelengths. At the silhouette it does the opposite: one clipmap quad out there is
+  // hundreds of metres across and its vertex normal is a single point sample of a wave field it
+  // cannot represent, so twelve per cent of that sample is still enough to tilt the reflection ray
+  // by degrees — and because the quads are enormous, what that produces is not noise but a visible
+  // dash the width of the quad. Flattening the rest of the way is what the paragraph above already
+  // argues for: the average slope over many whole wavelengths is flat.
+  float flatten = unresolvedSlope * mix(0.88, 1.0, smoothstep(1500.0, 4000.0, viewDistance));
+  vec3 geometricNormal = normalize(mix(normalize(vNormal), vec3(0.0, 1.0, 0.0), flatten));
   vec3 ripple = detailNormal(vUndisplaced, viewDistance, windFactor);
   // Blend the ripple into the wave normal in the wave's own tangent frame, so a ripple on the
   // face of a swell tilts with the swell instead of always pointing up.
@@ -190,12 +202,24 @@ void main() {
   // fading uniformly to transparent.
   foamMask *= smoothstep(0.0, 0.35, foamMask + foamSample.g * 0.35 - 0.18);
 
-  // Past a few kilometres one vertex spans hundreds of metres, so the Jacobian it carries is a
-  // point sample rather than a field, and a whitecap drawn from it would be a whole triangle
-  // wide. Fade the mask out over the range the wave normals are already flattening across. The
-  // energy is not lost: it returns through the roughness term, which is where detail the frame
-  // cannot resolve belongs.
-  foamMask *= 1.0 - smoothstep(2600.0, 6500.0, viewDistance);
+  // Past a couple of kilometres one vertex spans hundreds of metres, so the Jacobian it carries is
+  // a point sample rather than a field, and an individual whitecap drawn from it is a whole quad
+  // wide — a hundred-metre dash where there should be a crest.
+  //
+  // Fading it to nothing is the wrong answer, and it showed: it took the whitecaps off a Beaufort
+  // 9 sea from three kilometres out, which is most of the sea, and a storm horizon came back the
+  // same clean blue-grey as a calm one. What a distant sea actually shows is not the crest, it is
+  // the *coverage* — the fraction of the surface that is white — and that fraction has a measured
+  // law. Monahan and O'Muircheartaigh fitted W = 3.84e-6·U10^3.41 to whitecap photography: one
+  // part in six hundred at force 4, sixteen per cent at force 9. So the mask converges on that
+  // fraction as the crests stop resolving, instead of on zero.
+  //
+  // It is also the stable thing to do. The quantity being converged to is a constant across the
+  // whole far field, so no single quad can flash; the variance goes, the energy stays, and the
+  // rest of it comes back through the roughness term below, which is the statistically correct
+  // place for detail the frame cannot resolve.
+  float whitecapCoverage = clamp(3.84e-6 * pow(max(1.0, uWindSpeed), 3.41), 0.0, 0.3) * uFoamAmount;
+  foamMask = mix(foamMask, whitecapCoverage, smoothstep(1200.0, 4200.0, viewDistance));
 
   // ---------------------------------------------------------------------- reflection
   vec3 R = reflect(-V, N);
@@ -256,7 +280,13 @@ void main() {
     // Only the sun is shadowed: the mask is rendered from the sun's direction, and moonlight
     // through the same cloud would need its own projection to be anything but wrong.
     float illuminance = (light == 0 ? uSunIlluminance * sunShadow : uMoonIlluminance);
-    if (illuminance <= 0.0 || L.y <= -0.02) continue;
+    // Faded across the horizon rather than cut at it, and faded to nothing by the time the body
+    // is a degree down. The old `L.y <= -0.02` let a moon half a degree below the horizon go on
+    // lighting the sea at full strength — and at the silhouette, where nDotV and nDotL are both
+    // at their floors, the specular denominator is small enough for that to matter.
+    float aboveHorizon = smoothstep(-0.018, 0.0, L.y);
+    illuminance *= aboveHorizon;
+    if (illuminance <= 0.0) continue;
 
     vec3 H = normalize(L + V);
     float nDotL = max(0.0, dot(N, L));
@@ -303,6 +333,25 @@ void main() {
   vec3 foamDirect = sunlight * 0.16 * max(0.0, dot(N, uSunDirection));
   vec3 foamColour = (foamAmbient + foamDirect) * vec3(0.94, 0.96, 0.97);
   vec3 colour = mix(water, foamColour, foamMask);
+
+  // Aerial perspective, on the sea itself.
+  //
+  // The sea used to be the one surface in the frame with no haze on it, on the argument that the
+  // water already shows the sky and therefore already agrees with it. It does not: the sea is far
+  // darker than the sky it reflects at every angle steeper than grazing, so a sea with no
+  // extinction on it stays that dark all the way to the horizon. A storm publishing 1.4 km of
+  // visibility drew an island at three kilometres as a ghost — correctly, `terrain.frag` has had
+  // this since it was written — behind a sea whose crests were still crisp beyond it, and a fog
+  // bank at 120 m drew a horizon you could have used as a straightedge.
+  //
+  // Same law and same air light as every other surface: ln(50)/V for the extinction, because
+  // visibility is defined at 2 % contrast, and the probe in the direction being looked at for the
+  // colour, so the sea greys out into a fog and yellows out into a sandstorm without either being
+  // a special case. Nothing changes on a clear day — 25 km of visibility is 4 % extinction over
+  // the 3.8 km to the silhouette, which is a couple of code values.
+  float hazeExtinction = 3.912 / max(200.0, uVisibility);
+  float haze = 1.0 - exp(-hazeExtinction * viewDistance);
+  colour = mix(colour, ef_airLight(uEnvironment, uEnvironmentIntensity, V), haze);
 
   gl_FragColor = vec4(hdrClamp(colour), 1.0);
 }

@@ -2,6 +2,7 @@ import type { Engine } from './Engine.js';
 import type { GraphicsSettings, QualityPreset } from './Settings.js';
 import type { Boat } from '../entities/Boat.js';
 import type { FishingSystem } from '../gameplay/FishingSystem.js';
+import type { Clouds } from '../world/Clouds.js';
 import type { Ocean } from '../world/Ocean.js';
 import type { Sky } from '../world/Sky.js';
 import type { SkyWeatherFamily } from '../world/SkyLibrary.js';
@@ -55,6 +56,16 @@ export interface EphemerisSummary {
   exposure: number;
   significantWaveHeight: number;
   beaufort: number;
+  /**
+   * The weather field as the rest of the game sees it.
+   *
+   * Reported because "the storm is not arriving" and "the storm arrived and the sky is not
+   * drawing it" produce identical pictures, and telling them apart by looking cost an hour.
+   */
+  windSpeed: number;
+  cloudiness: number;
+  precipitation: number;
+  visibilityM: number;
 }
 
 export interface HelmSummary {
@@ -130,6 +141,21 @@ export interface EndlessFishingApi {
    * nothing. `scripts/playtest.ts` reads this and plays the loop for real.
    */
   fishing(): FishingSummary | null;
+  /**
+   * What the cloud layer is doing, read back from the buffer the march actually wrote.
+   *
+   * Stalls the pipeline. A debug call only.
+   */
+  clouds(): {
+    coverage: number;
+    baseM: number;
+    topM: number;
+    density: number;
+    convection: number;
+    anvil: number;
+    meanTransmittance: number;
+    meanScatter: number;
+  } | null;
   ephemeris(): EphemerisSummary | null;
   /** CPU/GPU wave agreement, in metres. */
   waveParity(): ParityResult | null;
@@ -270,6 +296,10 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
       };
     },
 
+    clouds() {
+      return engine.get<Clouds>('clouds')?.diagnostics(engine.renderer) ?? null;
+    },
+
     ephemeris(): EphemerisSummary | null {
       const state = engine.world.ephemeris;
       if (state === null) return null;
@@ -291,6 +321,10 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
         exposure: engine.world.exposure,
         significantWaveHeight: engine.world.significantWaveHeight,
         beaufort: engine.world.beaufort,
+        windSpeed: engine.world.windSpeed,
+        cloudiness: engine.world.cloudiness,
+        precipitation: engine.world.precipitation,
+        visibilityM: engine.world.visibility,
       };
     },
 

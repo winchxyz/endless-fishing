@@ -5,6 +5,7 @@ import {
   Color,
   CustomBlending,
   DataTexture,
+  DataUtils,
   HalfFloatType,
   LinearFilter,
   Matrix4,
@@ -267,6 +268,54 @@ export class Clouds implements System {
   /** World position to shadow-mask UV. `(matrix * vec4(worldPos, 1)).xy` is the lookup. */
   get shadowMatrix(): Matrix4 {
     return this.shadowMatrixValue;
+  }
+
+  /**
+   * What the deck is actually doing, including the mean of the buffer the march wrote.
+   *
+   * Instrumentation, and it earned its place: a pinned storm put a Beaufort 9 sea under a
+   * cloudless sky, and from outside there is no way to tell whether the coverage never arrived,
+   * the march produced nothing from it, or the march produced cloud that the composite then
+   * threw away. `meanTransmittance` near 1 says the march found no cloud; near 0 says it found
+   * plenty and the problem is downstream.
+   *
+   * The readback stalls the pipeline, so this is a debug call and nothing in the frame loop may
+   * use it.
+   */
+  diagnostics(renderer: WebGLRenderer): {
+    coverage: number;
+    baseM: number;
+    topM: number;
+    density: number;
+    convection: number;
+    anvil: number;
+    meanTransmittance: number;
+    meanScatter: number;
+  } {
+    const width = this.cloudTarget.width;
+    const height = this.cloudTarget.height;
+    const pixels = new Uint16Array(width * height * 4);
+    renderer.readRenderTargetPixels(this.cloudTarget, 0, 0, width, height, pixels);
+
+    let scatter = 0;
+    let transmittance = 0;
+    const count = width * height;
+    for (let i = 0; i < count; i += 1) {
+      scatter += DataUtils.fromHalfFloat(pixels[i * 4] ?? 0);
+      transmittance += DataUtils.fromHalfFloat(pixels[i * 4 + 3] ?? 0);
+    }
+
+    const coverage = this.uniforms['uCoverage']?.value;
+    return {
+      coverage: typeof coverage === 'number' ? coverage : -1,
+      baseM: this.profile.baseM,
+      topM: this.profile.topM,
+      density: this.profile.density,
+      convection: this.profile.convection,
+      anvil: this.profile.anvil,
+      meanTransmittance: count === 0 ? -1 : transmittance / count,
+      meanScatter: count === 0 ? -1 : scatter / count,
+    };
   }
 
   update(dt: number, engine: Engine): void {

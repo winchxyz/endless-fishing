@@ -125,16 +125,22 @@ const WEATHER_TIME_SCALE = 300;
 const WEATHER_FORWARD_MS = 30000;
 
 async function stage(page: Page, still: Still): Promise<void> {
-  if (still.weather !== null) {
-    await page.evaluate(
-      (setup) => {
-        window.endlessFishing?.setWeatherState(setup.weather);
-        window.endlessFishing?.setTimeScale(setup.scale);
-      },
-      { weather: still.weather, scale: WEATHER_TIME_SCALE },
-    );
-    await page.waitForTimeout(WEATHER_FORWARD_MS);
-  }
+  // Every still runs the field forward, including the ones with nothing pinned — and especially
+  // those. Dropping the override does not undo the weather; it hands the field back to the model
+  // with a Beaufort 9 in it, and the model damps out of that on its own time constants. Skipping
+  // the forwarding for `weather: null` therefore photographed whatever the *previous* still had
+  // built: the golden-hour hero shot is captured last, after the storm, and it came back with
+  // 1.4 km of visibility over it — a sunset rendered in one colour, because the aerial
+  // perspective was doing exactly what the weather told it to. Two and a half hours of world time
+  // with no override is a sea that has moderated and air you can see through.
+  await page.evaluate(
+    (setup) => {
+      window.endlessFishing?.setWeatherState(setup.weather);
+      window.endlessFishing?.setTimeScale(setup.scale);
+    },
+    { weather: still.weather, scale: WEATHER_TIME_SCALE },
+  );
+  await page.waitForTimeout(WEATHER_FORWARD_MS);
 
   await page.evaluate(
     (setup) => {

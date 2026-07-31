@@ -31,7 +31,7 @@ void main() {
   // Round the quad off and soften its rim. A hard-edged sprite is the one thing that gives a
   // particle system away instantly, whatever is drawn inside it.
   float mask = 1.0 - smoothstep(0.45, 1.0, length(vQuad));
-  float alpha = vAlpha * mask * uOpacity;
+  float alpha = hdrClampAlpha(vAlpha * mask * uOpacity);
   if (alpha <= 0.002) discard;
 
   vec3 viewVector = cameraPosition - vWorldPosition;
@@ -50,5 +50,5 @@ void main() {
   colour = ef_aerialPerspective(colour, vViewDistance, V);
 
   // Premultiplied, matching the wake ribbon's blend so the two can share a compositing mode.
-  gl_FragColor = vec4(hdrClamp(colour * alpha), alpha);
+  gl_FragColor = vec4(hdrClamp(colour * alpha), hdrClampAlpha(alpha));
 }

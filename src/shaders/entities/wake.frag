@@ -16,8 +16,9 @@
 // Output is premultiplied — colour already multiplied by coverage — so the foam composites over
 // the water while the specular is simply added on top of it, in one pass and one draw call.
 //
-// There is no aerial perspective here for the same reason `ocean.frag` has none: the sea beneath
-// is unfogged, and fogging the foam on top of it would put a haze-coloured stripe on clear water.
+// Aerial perspective is on it, matching `ocean.frag`. It has to be: the wake sits *on* the sea and
+// the sea is fogged, so foam without extinction would stay crisp on water that had already gone
+// into the murk — a bright stripe running out of a fog bank. Same law, same air light, both files.
 
 precision highp float;
 
@@ -81,6 +82,7 @@ void main() {
 
   // `vFoam` already carries the speed and the age envelope, so the coverage is the alpha;
   // folding `vFade` in again here would take the wake down twice for the same reason.
-  float alpha = clamp(coverage, 0.0, 1.0);
-  gl_FragColor = vec4(hdrClamp(foamColour * alpha + specular * vFade * 0.6), alpha);
+  float alpha = hdrClampAlpha(coverage);
+  vec3 lit = ef_aerialPerspective(foamColour + specular * vFade * 0.6, viewDistance, V);
+  gl_FragColor = vec4(hdrClamp(lit * alpha), hdrClampAlpha(alpha));
 }

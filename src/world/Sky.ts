@@ -83,6 +83,15 @@ const EXPOSURE_SAMPLE_INTERVAL = 15;
  */
 const MIN_ADAPTED_ILLUMINANCE_LUX = 6e-3;
 
+/**
+ * Fraction of the beam a closed cloud deck passes down, diffused.
+ *
+ * A stratus sheet a few hundred metres thick transmits about a fifth of what falls on it — which
+ * is why an overcast noon still meters around fifteen thousand lux rather than the couple of
+ * hundred you would get if cloud simply switched the sun off.
+ */
+const DECK_TRANSMISSION = 0.18;
+
 export class Sky implements System {
   readonly name = 'sky';
   readonly priority = 0;
@@ -528,7 +537,12 @@ export class Sky implements System {
     dt: number,
     engine: Engine,
     state: EphemerisState,
-    world: { exposure: number; sceneIlluminanceLux: number; cloudiness: number },
+    world: {
+      exposure: number;
+      sceneIlluminanceLux: number;
+      cloudiness: number;
+      precipitation: number;
+    },
   ): void {
     // Meter from the sky that was actually rendered, not from a model of it.
     //
@@ -545,17 +559,23 @@ export class Sky implements System {
     // zenith heavily — which is right for a landscape — over-exposed twilight by two stops,
     // because at twilight the horizon glow is many times the zenith and it is the horizon glow
     // that fills the frame.
+    //
+    // Each of the three is the mean of a whole *row*, which is a full turn of azimuth, and that
+    // matters more than the weights do. The table's azimuth is measured from the sun, so the
+    // single texels this used to read at u = 0.5 were all on the anti-solar meridian — the
+    // darkest line in the sky. At twilight the western horizon runs an order of magnitude above
+    // the eastern one, so the meter opened up for the dark half and pushed the bright half
+    // through white: a civil twilight with no gradient left in it, the sky metering 1.53 where a
+    // photographer would have put it near 0.7, and every colour in the frame washing towards the
+    // magenta that ACES gives a clipped warm highlight. A row read is one flush, the same as one
+    // texel, so the exact average is also the cheap answer.
     this.exposureSampleCountdown -= 1;
     if (this.exposureSampleCountdown <= 0) {
       this.exposureSampleCountdown = EXPOSURE_SAMPLE_INTERVAL;
       const scale = this.skyIntensity;
-      const zenith = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 1.0);
-      const middle = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 0.75);
-      const horizon = this.atmosphere.sampleSkyView(engine.renderer, 0.5, 0.53);
-      const luminanceOf = (rgb: [number, number, number]): number =>
-        Math.max(0, 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) * scale;
-      const skyLuminance =
-        0.28 * luminanceOf(zenith) + 0.32 * luminanceOf(middle) + 0.4 * luminanceOf(horizon);
+      const rowAt = (v: number): number =>
+        this.atmosphere.meanSkyViewRowLuminance(engine.renderer, v) * scale;
+      const skyLuminance = 0.28 * rowAt(1.0) + 0.32 * rowAt(0.75) + 0.4 * rowAt(0.53);
       // Radiance over the hemisphere back to illuminance on a horizontal surface. The night
       // floor is added here rather than sampled because it never enters the table at all.
       this.measuredSkyIlluminance = (skyLuminance + this.nightFloorLuminance) * Math.PI;
@@ -583,15 +603,30 @@ export class Sky implements System {
     const SPECULAR_GAIN = 1;
     const specular = (state.sunIlluminanceLux * 0.02 + state.moonIlluminanceLux) * SPECULAR_GAIN;
 
+    // Cloud does not remove the light, it diffuses it — and the meter has to know the difference.
+    //
+    // The direct beam is what a deck blocks, and `WorldLighting` already docks every light in the
+    // scene by the same `1 − 0.9·cover`. The meter did not, so under an overcast it went on
+    // believing in twenty-six thousand lux of sunshine that was not reaching the water, stopped
+    // down for it, and rendered a bright grey day as dusk. But simply removing the beam is just
+    // as wrong: a stratus sheet passes roughly a fifth of what falls on it and re-emits it over
+    // the whole sky, which is why an overcast noon still reads fifteen thousand lux on a real
+    // meter. Both halves are here. Rain closes the deck further, which is what makes a squall
+    // genuinely dark rather than merely grey.
+    const cover = world.cloudiness;
+    const beam = 1 - cover * 0.9;
+    const transmitted = DECK_TRANSMISSION * (1 - world.precipitation * 0.7);
+    const above = state.sunIlluminanceLux + state.moonIlluminanceLux;
+
     // The sky term is the whole of the night floor now that the meter can see it, so there is no
     // longer a constant standing in for it — only a guard against a divide by zero if every
     // source is somehow off at once.
     const total = Math.max(
       1e-9,
-      state.sunIlluminanceLux * 0.35 +
-        state.moonIlluminanceLux +
-        specular +
-        this.measuredSkyIlluminance * (0.55 + world.cloudiness * 0.45),
+      above * beam * 0.35 +
+        above * cover * transmitted +
+        specular * beam +
+        this.measuredSkyIlluminance * (1 - cover * 0.85),
     );
 
     // Adaptation is deliberately slow, and slower going dark than going bright — which is how

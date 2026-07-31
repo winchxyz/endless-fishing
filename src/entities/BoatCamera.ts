@@ -41,8 +41,19 @@ const HEADING_RATE = 2.6;
 /** Fraction of the hull's heel the chase camera inherits. All of it would be seasickening. */
 const FOLLOW_ROLL = 0.32;
 
-/** Metres of clear air kept between the camera and the water surface below it. */
-const WATER_CLEARANCE = 0.75;
+/**
+ * Metres of clear air kept between the camera and the water surface below it.
+ *
+ * A floor plus a share of the significant wave height, because a fixed clearance is only ever
+ * right for one sea. `heightAt` is a point sample directly beneath the eye, and what actually
+ * fills the frame is the crest *in front* of it — which within one wavelength can stand Hs/2
+ * higher. Three quarters of a metre is ample on a calm and nothing at all in a force 9: the
+ * camera sat legally clear of the water under it and looked straight into the back of the next
+ * wave, and because the ocean is `DoubleSide` that came out as the underside of the sea filling
+ * the bottom of the frame.
+ */
+const WATER_CLEARANCE_M = 0.75;
+const WATER_CLEARANCE_PER_WAVE_HEIGHT = 0.22;
 
 /** Field-of-view kick: degrees per m/s² of surge acceleration, and its limits. */
 const FOV_PER_ACCELERATION = 0.55;
@@ -166,8 +177,21 @@ export class BoatCamera implements System {
         break;
     }
 
-    this.floatClearOfCrest();
+    // Shake first, then float clear — and that order is the whole point.
+    //
+    // The shake is a view-space throw, so a third of it is vertical and in a big sea it is the
+    // largest single displacement applied to the eye. Running it *after* the clamp put the camera
+    // back under the crest the clamp had just lifted it out of, on the frames where the shake
+    // happened to be pointing down and the sea was steep enough to matter — which is to say, in a
+    // storm and nowhere else. What that looks like is a corner of the frame filled with the
+    // underside of a wave: `side: DoubleSide` on the ocean, so the back of the surface is drawn
+    // rather than culled, and it comes out as hard-edged dark facets across the near water. One
+    // of them is in the committed force 9 screenshot.
+    //
+    // With the clamp last, the shake can throw the eye wherever it likes and the water is still
+    // the floor.
     this.applyShake();
+    this.floatClearOfCrest(engine.world.significantWaveHeight);
 
     engine.camera.position.copy(this.eye);
     engine.camera.quaternion.copy(this.attitude);
@@ -305,8 +329,9 @@ export class BoatCamera implements System {
    * pulling the camera back under the surface and the result would chatter at exactly the
    * frequency of the waves.
    */
-  private floatClearOfCrest(): void {
-    const floor = this.water.heightAt(this.eye.x, this.eye.z) + WATER_CLEARANCE;
+  private floatClearOfCrest(seaState: number): void {
+    const clearance = WATER_CLEARANCE_M + WATER_CLEARANCE_PER_WAVE_HEIGHT * seaState;
+    const floor = this.water.heightAt(this.eye.x, this.eye.z) + clearance;
     if (this.eye.y < floor) {
       this.eye.y = floor;
       if (this.rig.y < floor) this.rig.y = floor;

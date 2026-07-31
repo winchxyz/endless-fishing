@@ -11,7 +11,7 @@ An endless ocean, under the sky that is actually above you right now.
 | ![](docs/media/02-dawn.jpg) | ![](docs/media/03-noon.jpg) |
 | **Civil twilight — sun −8°** | **Moonless night — sun −34°** |
 | ![](docs/media/04-civil-twilight.jpg) | ![](docs/media/05-night.jpg) |
-| **Force 5** | **Force 9** |
+| **Overcast — force 5** | **Storm — force 9, rain, 1.4 km visibility** |
 | ![](docs/media/06-overcast.jpg) | ![](docs/media/07-storm.jpg) |
 
 ![A force 9 gale](docs/media/storm.gif)

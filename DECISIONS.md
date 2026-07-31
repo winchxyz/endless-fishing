@@ -342,3 +342,65 @@ in total. `scripts/media.ts` is the only thing that writes them, so the pictures
 cannot drift from what the renderer actually produces: re-run it and the README is current by
 construction. The asset pipeline's rule that nothing binary is committed is about *downloaded*
 assets, which are still fetched, checksummed and credited rather than vendored.
+
+### 28. Weather that is published has to be drawn
+
+`WorldState` has carried `precipitation` and `visibility` since the weather model was written, and
+for just as long neither of them put anything on the screen. Precipitation darkened the underside
+of the cloud deck, opened the rain bed in the audio mix and desaturated the grade; visibility went
+to `terrain.frag` and the cloud march and nowhere else. So a pinned storm arrived with a Beaufort 9
+sea, 1.4 km of visibility, rain on the soundtrack, a clear view of nothing falling, and a horizon
+you could have used as a straightedge. The numbers were right and the frame did not show them.
+
+Three things close it, and each is the same principle: the renderer consumes the figure the model
+publishes rather than a look tuned to resemble it.
+
+**Rain is a lattice, not a particle system.** A drop reaches terminal velocity within about two
+metres of the cloud base and holds it, so every drop in the sky has the same velocity — wind plus
+fall — and the field is one rigid lattice translating through the camera. No per-particle state, no
+respawn, no sort: one instanced draw call and one uniform a frame. The streak is the shutter, so
+its length and its lean are `velocity × 1/48 s` and follow the wind for free. The count is the one
+number that is a budget rather than a measurement, and `world/Rain.ts` says so.
+
+**The sea is fogged like everything else.** `ocean.frag` had no aerial perspective, on the argument
+that water already shows the sky. It does not: at anything steeper than grazing the sea is far
+darker than the sky it reflects, so with no extinction it stays that dark to the horizon. Same
+Koschmieder law, same air light, and a sea fog now closes in.
+
+**Far foam converges on the measured coverage, not on zero.** Past a couple of kilometres one
+clipmap vertex spans hundreds of metres and the Jacobian it carries is a point sample, so an
+individual whitecap drawn from it is a hundred-metre dash. Fading it out took the whitecaps off a
+force 9 sea from three kilometres — most of the sea. What a distant sea shows is not the crest but
+the fraction of surface that is white, and Monahan and O'Muircheartaigh measured that:
+W = 3.84e-6·U10^3.41, one part in six hundred at force 4 and sixteen per cent at force 9. The mask
+converges on that. It is also the stable answer, because a constant cannot flash.
+
+### 29. Air light is the sky, and the probe is not only sky
+
+Every fogged surface fades towards `ef_airLight`, and that used to be a mip-4 fetch of the
+environment cube along the view ray. The cube is a picture of the whole world, and its lower
+hemisphere is water — so fogging a distant object meant fading it towards a colour that was itself
+half sea. A 120 m fog still drew a horizon forty code values deep.
+
+The fix is two clamps and they are both geometry, not taste. The elevation is held four degrees
+above the horizon, because air light over open water *is* the sky just above the horizon. And the
+mip is 1 rather than 4: level 4 averages a sixty-degree cone, which puts the water straight back in
+however the direction is clamped, and level 0 is a seven-tenths-of-a-degree texel — about the size
+of the sun, which is a delta function the cube cannot represent and whose whole energy one texel
+therefore carries. Level 1 spreads that over four times the area and stays clear of the horizon
+row. One definition, in `lib/airlight.glsl`, used by the ocean and by `ef_aerialPerspective`.
+
+### 30. The exposure meter reads a ring, not a meridian
+
+The sky-view table is parameterised on azimuth measured **from the sun**, so `u = 0.5` is the
+anti-solar point. The meter sampled three texels there. At noon that is harmless; at twilight the
+western horizon runs an order of magnitude above the eastern one, so the meter was reading the
+darkest line in the sky, opening up for it, and pushing the bright half through white. Civil
+twilight came out a flat magenta wash with no gradient in it — the sky metering 1.53 where a
+photographer would have put it near 0.7, and ACES turning the clipped warm highlight magenta.
+
+Each sample is now the mean of a whole row: a full turn of azimuth, read with one
+`readRenderTargetPixels` into a buffer allocated once. A row read costs the same single pipeline
+flush that reading one texel costs, so the exact hemispherical average is cheaper here than four
+more point samples would have been.
+
