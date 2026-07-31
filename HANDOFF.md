@@ -1,205 +1,202 @@
 # HANDOFF.md
 
-Written to be picked up cold by a fresh session. Read `CLAUDE.md` first (conventions and the
-single-sources-of-truth), then `DECISIONS.md` (recorded decisions with reasoning), then
-`PROGRESS.md` (measured numbers). This file is the "what to do next" layer on top of those.
-
-Current as of commit `a832cf1`. **All subsystem agents have finished.** `npx tsc --noEmit` is
-clean across the whole tree and `npx vitest run` passes **112/112**.
+**For a fresh session. Read this file first, then `CLAUDE.md`, then `DECISIONS.md`.**
 
 ---
 
-## Start here
+## Your instructions
+
+The owner wants a **playable, production-ready game**. Not a report, not a list of options.
+
+- **Do not ask for confirmation.** Fix things. Deploy. Report when it is actually finished.
+- **Verify every visual change on a rendered frame before deploying it.** The previous session
+  deployed a shader change without looking at it and made the sky worse. `scripts/probe.ts`
+  renders a frame and writes `screenshots/probe.png` in about 90 seconds. Look at it. Every time.
+- **Do not trust `npm run verify`.** Its logs have disagreed with the screenshot timestamps.
+  Use `scripts/probe.ts`.
+- After any subagent failure, run `git status` before assuming its work was lost — agents write
+  files as they go and usually survive an API error.
+
+## Live site
+
+**https://winchxyz.github.io/endless-fishing/** — GitHub repo `winchxyz/endless-fishing`.
+
+Deployed by building and force-pushing `dist` to the `gh-pages` branch:
 
 ```bash
-npm install
-npm run assets      # 131 MB of CC0 assets, checksum-locked, idempotent
-npm run textures    # ORM packing, lunar normal map, star catalogue -> binary
-npm run test:run    # 112 tests
+VITE_BASE=/endless-fishing/ npm run build
+cd dist && git init -b gh-pages && git add -A && git commit -m "Deploy"
+git push -f https://github.com/winchxyz/endless-fishing.git HEAD:gh-pages
+```
+
+`.github/workflows/deploy.yml` exists on disk but **is not in the repo** — the token has `repo`
+scope but not `workflow`, so GitHub rejects any push containing it. To enable proper CI:
+`gh auth refresh -s workflow`, then commit the file and switch Pages source to Actions.
+
+## Build
+
+```bash
+npm install && npm run assets && npm run textures
+npm run test:run     # 130 tests, all passing
 npm run dev
+npx tsx scripts/probe.ts "2026-06-21T16:10:00Z"   # renders screenshots/probe.png
 ```
 
-`npx tsx scripts/probe.ts "2026-06-21T16:10:00Z"` boots headless, prints photometry, frame stats
-and console problems, and writes `screenshots/probe.png`. **This is the trustworthy visual
-check.** `npm run verify` is not — see open issue 5.
+---
+
+## OPEN BUGS — this is the actual work
+
+### 1. Orange band across the horizon. Not diagnosed. Highest priority.
+
+A bright orange/red horizontal line sits exactly on the horizon, worst at night. Two failed
+attempts, so do not repeat them:
+
+- **Not** the cloud layer. It appeared in night frames taken before clouds, islands or props
+  existed at all.
+- **Not** HDRI light pollution. The night panoramas do carry sodium glow on the horizon and that
+  is now faded out after dark — the band survived, so that was not it.
+
+Untested lead: in `ocean.frag` the reflection ray is clamped with `R.y = max(R.y, 0.008)` so a
+grazing view samples the environment probe's horizon row. If the probe's lowest row holds a warm
+value (the sky's own horizon, or the sun-disc extinction term bleeding in), every grazing pixel
+would reflect it as a hard line. Check what the probe cubemap actually contains near its
+equator. Also check `sky.frag`'s solar-disc block: it applies
+`sampleTransmittance(uTransmittanceLut, radius, uSunDirection.y)` with a *negative* sun altitude
+at night, which is outside the LUT's meaningful domain.
+
+### 2. Moon glitter path still clips to white
+
+Improved but not fixed. Night exposure went 13.6 → 5.5 by giving the meter a specular allowance
+(`SPECULAR_GAIN` in `Sky.updateExposure`). The highlight still blows. Either raise the gain, or
+better, widen the GGX roughness floor at night in `ocean.frag` — the moon is a 0.5° disc, not a
+point, and the specular lobe is currently narrower than the source.
+
+### 3. Motion is invisible — this is why "WASD doesn't work"
+
+The boat **does** move; the HUD speed responds (0.0 → 2.0 kn). But the camera is locked to the
+boat, the ocean clipmap is camera-centred, and there are no fixed references, so nothing appears
+to happen. The owner reads this as broken controls, and they are right that it is broken — as a
+game, not as an input system.
+
+Fix by adding what is missing: **a wake** (the brief asks for diverging Kelvin V-waves scaled by
+speed), **bow spray**, and visible fixed landmarks. `Wake` was never written. This is the single
+biggest gap between what exists and something that feels like a game.
+
+### 4. No audio at all
+
+`src/core/Audio.ts` is a complete Web Audio engine with a synthesis toolkit (noise buffers, FM
+voices, procedural impulse-response reverb, positional panners) and it is **never instantiated**.
+`AudioEngine.create(settings)` returns `AudioEngine | null`.
+
+`src/world/AudioBeds.ts` — the system that would drive it from `WorldState` — **does not exist**;
+the agent writing it was killed before it got there. It needs writing: wave noise scaled by
+`significantWaveHeight` and `beaufort`, engine pitched by RPM, hull slap from the boat's vertical
+acceleration, rain from `precipitation`, thunder delayed by real distance from
+`weather.onLightning`, a low-pass when `underwater.isSubmerged`.
+
+### 5. Save does not persist
+
+`src/gameplay/Save.ts` is written and tested; nothing calls it. Progression, inventory and the
+journal are all lost on reload.
+
+### 6. Catch card never appears
+
+`CatchCard` is constructed but nothing watches `fishing.state === 'landed'` to show it with
+`fishing.lastCatch`. Fields map 1:1 onto `CatchCardData` except `personalBest`/`firstCatch`,
+which only the journal knows.
+
+### 7. NaN in the cloud march
+
+Symptom is patched (`ef_safeTransmittance` guards the buffer alpha at both write and read,
+because `saturate(NaN)` collapses to 0 and the premultiplied blend then multiplies the sky by
+zero — that was the black speckle). The march still produces a NaN at grazing angles. Root cause
+unfound.
+
+### 8. Cloud layer bands at the horizon
+
+`tFar = min(ef_shellExit(...), CLOUD_MAX_DISTANCE_M)` — the clamp bites at one elevation all the
+way round the compass, so it lands as a hard horizontal edge. A previous attempt to fade the
+layer where the clamp bites was reverted because it was deployed unverified and looked worse.
+The diagnosis was right; the fix needs doing with a frame in hand.
+
+### 9. Weather opens pinned
+
+`main.ts` sets `settings.world.weatherOverride = 'light-breeze'` because the synoptic field is
+deterministic and this seed lands it in a Beaufort 9 gale, which made the game unplayable on
+load. That is a workaround. The proper fix is to seed the pressure field in a benign state and
+let it evolve, so all eight weather states are reachable in normal play.
+
+### 10. Not implemented from the brief
+
+The per-regime LUT colour grade (§10) — `PostFX` has exposure, bloom, ACES, vignette, grain, CA
+and SMAA, but **no grade**, and no GTAO, DoF, god rays or motion blur. Phase 11 (LOD tuning,
+profiling) never happened. README has one screenshot, not the required matrix plus a storm GIF.
 
 ---
 
-## The one-paragraph state
+## What is solid — do not re-derive it
 
-Everything is built except the fishing state machine, and nothing after the boat is wired into
-`main.ts`. Astronomy is verified against the US Naval Observatory to the minute. The ocean has
-CPU/GPU wave agreement at 0.0059 mm on a real driver. The boat floats on a corrected buoyancy
-solver. Weather is a genuine synoptic model with cloud shadows on the water. Fish, seabed,
-underwater, islands, props, birds, UI, progression, save and audio all exist, compile and are
-unit-tested — but **none of them has ever been run by a GPU**, because `main.ts` does not
-register them yet. There is no live URL.
-
----
-
-## Next actions, in strict priority order
-
-### 1. Wire the landed subsystems into `src/main.ts`
-
-Nothing below the boat is registered. This is the single biggest blocker: eight subsystems have
-never had a shader compiled by a driver. Expect real bugs on first run — that is the point.
-
-Current order in `main.ts`: Sky → Weather → Clouds → Ocean (with `ocean.setCloudShadows(clouds)`)
-→ Tides → Boat → BoatCamera → PostFX.
-
-Add, in this order:
-
-```ts
-const islands = await Islands.create(engine, materials);            // priority 15
-engine.add(islands);
-const props = await Props.create(engine, materials, islands.field); // priority 16
-engine.add(props);
-props.setSwell(ocean);
-props.setBellAudio(audio);          // optional
-
-const seabed = new Seabed(engine, ocean);                           // priority 12
-engine.add(seabed);
-const underwater = new Underwater(engine, ocean);                   // priority 35
-engine.add(underwater);
-seabed.setOptics(underwater);
-
-const fish = new Fish(engine, ocean, seabed, boat);                 // priority 30
-fish.setOptics(underwater);
-engine.add(fish);
-
-const birds = new Birds(engine);                                    // priority 22
-birds.setSea(ocean);
-birds.setSchoolLocator((out) => fish.nearestSchool(...));
-engine.add(birds);
-```
-
-Then the UI (`HUD`, `CatchCard`, `Journal`, `SettingsPanel`), `Progression`/`Inventory`/`Save`,
-and the audio engine. The UI needs a plain per-frame snapshot object built in `main.ts`;
-`src/core/DebugApi.ts` shows the shape of the data available.
-
-### 2. Write `src/gameplay/FishingSystem.ts`
-
-The only missing file. Without it there is no game loop. Everything it needs exists:
-
-| Dependency | Where | Gives you |
-|---|---|---|
-| `evaluateBite`, `rollBite`, `BiteConditions` | `gameplay/BiteModel.ts` | bite rate from named factors |
-| `selectSpecies`, `rollSpecimen`, `CaughtFish` | `gameplay/Species.ts` | 12 species, two-stage rarity, log-normal mass |
-| `Bobber` | `entities/Bobber.ts` | buoyancy with real vertical momentum |
-| `FishingLine` | `entities/FishingLine.ts` | Gauss-Seidel line with sag and tension |
-| `boat.rodTipWorldPosition(out)` | `entities/Boat.ts` | where the rod is |
-| `fish.schoolBoost(pos)`, `fish.nearestSchool(pos, out)` | `entities/Fish.ts` | 0..1, decays on the same 9 m scale as `BiteModel.structureFactor` |
-
-`System`, `name: 'fishing'`, `priority: 40`. **Explicit** state machine —
-`idle → charging → casting → sinking → waiting → bite → fighting → landed | escaped → idle` —
-no booleans standing in for states. The fight needs feel: per-species rhythm from
-`pull`/`runRate`/`stamina`, a snap threshold, a slack-loses-the-fish rule, tension made volatile
-by `world.significantWaveHeight`.
-
-Also missing: `test/fishing.test.ts`, `test/progression.test.ts`.
-
-### 3. Hoist the Jerlov constants — a fifth source of truth CLAUDE.md doesn't name
-
-The water absorption/scattering coefficients are now duplicated **four times**: verbatim in
-`ocean.frag`, `fish.frag` and `seabed.frag`, plus a TypeScript mirror in `Underwater.ts` (the
-background colour is computed CPU-side). They are currently byte-identical; they will not stay
-that way. Hoist into `src/shaders/lib/water.glsl` plus one TS export, and add the row to
-CLAUDE.md's source-of-truth table.
-
-### 4. Small correctness fixes already identified
-
-- **`Ocean`'s `uSeabedDepth` is a fixed 55 m** and never consults `Seabed.floorHeightAt`, so
-  over a 16 m bank the surface absorbs as though it were deep water. Wire it.
-- **Stars show faintly through the murk underwater.** `StarField` uses `transparent: true,
-  depthTest: false` so it draws after the depth-writing background shell. Hide it when
-  `underwater.isSubmerged`.
-
-### 5. Fix the two visible rendering defects
-
-- **Cloud banding at the horizon** — a hard strip in every daytime frame. Start in
-  `src/shaders/clouds/clouds.frag`, likely the shell intersection or the march's near/far clamp
-  at grazing angles.
-- **The boat reads flat** — probably its materials are not receiving `scene.environment`, or
-  `envMapIntensity` is unset. Check the PMREM output is assigned before its materials compile.
-
-### 6. Verify the night sky
-
-Moonlight scattering and airglow are in `sky.frag` at measured magnitudes (full moon
-≈ 0.001 cd/m² of sky, airglow ≈ 0.0002) but were **never visually confirmed**. Run
-`npx tsx scripts/probe.ts "2026-07-29T21:30:00Z"` — a real full moon — and look.
-
-### 7. Fix `npm run verify`
-
-Its logs claimed "Report written" while screenshot timestamps showed files from an earlier run.
-Probable cause: the spawned `npm run dev` tree is not killed reliably on Windows, so a stale
-server serves a stale page while a new one binds another port. `scripts/probe.ts` does the same
-job for one frame and is reliable; the difference between them is where to look. **Fix this
-before trusting any more screenshots** — a harness you cannot trust is worse than none.
-
-### 8. Then Phases 11 and 12
-
-Polish and LOD tuning; the per-regime LUT colour grade (§10 of the brief — **not implemented**;
-`PostFX` has exposure, bloom, ACES, vignette, grain, CA and SMAA, but no grade, and no GTAO, DoF,
-god rays or motion blur). Then the production build, GitHub Actions deployment to Pages, and a
-README with screenshots and a storm GIF.
+- **Astronomy.** Verified against the US Naval Observatory: every rise, set, transit and twilight
+  event matches **to the minute** at Tel Aviv and at Reykjavík on the winter solstice. 52 tests.
+  Reproduce: `npx tsx scripts/almanac-check.ts 2026-07-30 32.08 34.78 3`.
+- **Ocean.** CPU/GPU wave agreement **0.0059 mm** over 4096 points, measured on the real driver.
+  The whole sea is one draw call.
+- **Sky photometry.** 2784 cd/m² zenith, 8424 horizon at solar noon. Real values.
+- **Buoyancy.** Two real defects found and corrected analytically (probe quadrature losing two
+  thirds of the righting moment; buoyancy at the keel trimming the hull 7° by the head).
+- **Performance.** 60 FPS, ~150 draw calls against a 300 budget, on an RTX 4070.
 
 ---
 
-## Gotchas that cost hours
+## Gotchas that cost hours. Read these.
 
-1. **three injects `float luminance(const in vec3)` into every `ShaderMaterial` program.**
-   Defining your own kills the program. Use `ef_luminance` from `lib/constants.glsl`.
-2. **three defines `saturate` as a macro.** A same-named function becomes a syntax error whose
-   message points at your definition rather than at the collision.
-3. **Physical radiance must go through `hdrClamp()`.** The sun disc is 1.6×10⁹ cd/m²; half-float
-   tops out at 65504, so the true value stores as `Infinity` and bloom averages it across the
-   whole frame. White screen, no error.
+1. three injects `float luminance(const in vec3)` into every `ShaderMaterial` program. Never
+   define your own — use `ef_luminance` from `lib/constants.glsl`.
+2. three defines `saturate` as a **macro**. A same-named function is a syntax error pointing at
+   your definition rather than at the collision.
+3. Physical radiance must pass through `hdrClamp()`. The sun disc is 1.6×10⁹ cd/m²; half-float
+   tops out at 65504 and stores `Infinity`, which bloom then averages across the whole frame.
 4. **A convolution effect reads the pass input buffer, not the accumulated colour.** Bloom after
    exposure *in the same pass* still sees raw radiance. Exposure needs its own pass, and two
-   convolution effects cannot share a pass at all — pmndrs throws inside the constructor, which
-   takes down boot with no obvious link to the cause.
-5. **`ShaderMaterial` does not apply three's tone mapping.** The composer owns it.
-6. **CSM registration cuts both ways.** `MeshStandardMaterial` (the boat) **must** call
-   `sky.registerShadowMaterial()` or it is lit by every cascade at once — 3–4× too bright.
-   Custom `ShaderMaterial`s that shade from the ephemeris via `worldlight.glsl` (ocean, fish,
-   seabed, islands, props, birds) **must not** — patching them is 3–4× too bright the other way.
-7. **Texture fetches inside loops need `texture2DLodEXT(tex, uv, 0.0)`.**
-8. **The exposure meter reads back from the sky-view LUT.** Measured, not modelled — an analytic
-   fit was two stops out at civil dawn. Do not replace it with a curve.
-9. **Adaptation resets on a clock jump.** A time override is a cut, not a sunset.
+   convolution effects cannot share a pass — pmndrs throws inside the constructor, killing boot
+   with no obvious link to the cause.
+5. `ShaderMaterial` does not apply three's tone mapping. The composer owns it.
+6. **CSM registration cuts both ways.** `MeshStandardMaterial` (boat, fishing rod) **must** call
+   `sky.registerShadowMaterial()` or it is lit by every cascade at once. Custom `ShaderMaterial`s
+   shading from the ephemeris via `worldlight.glsl` (ocean, fish, seabed, islands, props, birds)
+   **must not**. 3–4 stops of error in either direction.
+7. Texture fetches inside loops need `texture2DLodEXT(tex, uv, 0.0)`.
+8. The exposure meter reads back from the sky-view LUT — measured, not modelled. An analytic fit
+   was two stops out at civil dawn. Do not replace it with a curve.
+9. Eye adaptation resets on a clock jump; a time override is a cut, not a sunset.
 10. **vitest has no `vite-plugin-glsl`.** A test cannot transitively import anything that imports
-    a `.vert`. That is why `WorldField.ts` exists separately from `Islands.ts`, and why
-    `test/fish.test.ts` uses `vi.mock` on the shader modules. Keep pure logic importable.
-
----
-
-## Agent workflow notes
-
-About a dozen subagents were dispatched. Six were killed by API errors (`403 Request not
-allowed`, connections dropped mid-response). **They write files as they go, so their work
-usually survives** — after any agent failure, check `git status` before assuming it is lost.
-That recovered six substantial modules including the entire UI layer.
-
-Batches of two to four fared better than seven. Give each a disjoint file list, forbid
-`src/main.ts`, and integrate by hand.
+    a `.vert`. That is why `WorldField.ts` is separate from `Islands.ts`, and why
+    `test/fish.test.ts` mocks its shader modules.
+11. **Draw order matters and is easy to get wrong.** The underwater murk shell at `renderOrder
+    -500` sits over the sky (−1000) and stars (−900). Showing it for any submersion above zero
+    blacked out every night frame. Anything full-screen needs its visibility condition checked
+    against a real frame.
 
 ---
 
 ## Repository map
 
 ```
-src/astro/     pure, no three, no DOM — the ephemeris. 52 tests live here.
+src/astro/     pure — the ephemeris. 52 tests. No three, no DOM.
 src/math/      pure — Gerstner (mirrored by shaders/lib/gerstner.glsl), Noise, PRNG
 src/core/      Engine, Loop, Input, Time, Settings, WorldState, ResourceManager, Audio, DebugApi
 src/world/     Sky, Atmosphere, SkyLibrary, StarField, Ocean, Weather, Clouds, Tides, Chunks,
-               Islands, WorldField, Vegetation, TerrainMesh, Props, PropGeometry,
-               Seabed, Underwater
-src/entities/  Boat, BoatGeometry, BoatCamera, Buoyancy, Bobber, FishingLine,
-               Fish, FishGeometry, Birds, SeaLifeGeometry
-src/gameplay/  Species, BiteModel, Progression, Inventory, Save     (FishingSystem MISSING)
+               Islands, WorldField, Vegetation, TerrainMesh, Props, PropGeometry, Seabed,
+               Underwater
+src/entities/  Boat, BoatGeometry, BoatCamera, Buoyancy, Bobber, FishingLine, Fish,
+               FishGeometry, Birds, SeaLifeGeometry            (Wake MISSING)
+src/gameplay/  Species, BiteModel, FishingSystem, FightModel, Progression, Inventory, Save,
+               UiSystem
 src/render/    PostFX, Materials, EnvironmentProbe, ProceduralTextures, WorldLighting,
                GerstnerParity, FullScreenPass
 src/ui/        HUD, CatchCard, Journal, SettingsPanel, LoadingScreen — never imports three
 src/shaders/   sky/ ocean/ clouds/ fish/ underwater/ terrain/ world/ entities/ line/ post/ lib/
 scripts/       fetch-assets, process-textures, verify, probe, almanac-check
 ```
+
+Everything is wired into `main.ts` except audio, save and the catch-card trigger.
