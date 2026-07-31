@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from '@playwright/test';
+import { startVite, type ViteServer } from './lib/server.js';
 
 /**
  * Play the game, headless, and assert that the loop closes.
@@ -24,7 +24,6 @@ import { chromium, type Page } from '@playwright/test';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 5197;
-const URL = `http://127.0.0.1:${PORT}/`;
 const OUT_DIR = resolve(ROOT, 'screenshots');
 
 /** Dawn at Tel Aviv: the bite tables favour it, so the test does not sit through a dead noon. */
@@ -37,30 +36,7 @@ const BITE_TIMEOUT_MS = 150000;
 /** How long to spend reeling a hooked fish before giving up on landing it. */
 const FIGHT_TIMEOUT_MS = 120000;
 
-const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
-  cwd: ROOT,
-  shell: true,
-  stdio: 'ignore',
-});
-
-function killServer(): void {
-  if (server.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { stdio: 'ignore' });
-  }
-}
-
-async function waitForServer(): Promise<void> {
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    try {
-      const response = await fetch(URL, { method: 'HEAD' });
-      if (response.ok || response.status === 404) return;
-    } catch {
-      // not up yet
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error('dev server did not start');
-}
+let server: ViteServer | null = null;
 
 /** Everything the page can tell us about where the loop is, in one round trip. */
 async function snapshot(page: Page): Promise<{
@@ -101,7 +77,7 @@ async function until(
 
 async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
-  await waitForServer();
+  server = await startVite('dev', PORT);
 
   const browser = await chromium.launch({
     headless: true,
@@ -119,7 +95,7 @@ async function main(): Promise<void> {
   });
   page.on('pageerror', (error) => problems.push(`[pageerror] ${error.message}`));
 
-  await page.goto(URL, { waitUntil: 'load', timeout: 90000 });
+  await page.goto(server.url, { waitUntil: 'load', timeout: 90000 });
   await page.waitForTimeout(14000);
 
   await page.evaluate(
@@ -224,13 +200,13 @@ async function main(): Promise<void> {
       note('console clean');
     }
     await browser.close();
-    killServer();
+    await server?.stop();
     process.exit(code);
   }
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  killServer();
+  await server?.stop();
   process.exit(1);
 });

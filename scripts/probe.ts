@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from '@playwright/test';
 import sharp from 'sharp';
+import { startVite, type ViteServer } from './lib/server.js';
 
 /**
  * Fast frame diagnostic.
@@ -30,12 +30,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = resolve(ROOT, 'screenshots');
 
 /**
- * A port of its own, claimed strictly.
+ * A port of its own, claimed strictly — see `lib/server.ts` for why that matters.
  *
  * Vite silently walks to the next free port when its default is taken, and the probe then
- * connects to whatever else happens to be sitting on 5173 — which cost an afternoon of frames
- * that were captured from a completely different working tree. `--strictPort` turns a collision
- * into an error instead of a wrong answer.
+ * connects to whatever else happens to be sitting on 5173, which cost an afternoon of frames
+ * captured from a completely different working tree.
  */
 const DEFAULT_PORT = 5199;
 
@@ -138,39 +137,7 @@ function parseArgs(argv: string[]): Options {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const URL = `http://127.0.0.1:${options.port}/`;
-
-const server = spawn(
-  'npx',
-  ['vite', '--port', String(options.port), '--strictPort', '--host', '127.0.0.1'],
-  { cwd: ROOT, shell: true, stdio: 'ignore' },
-);
-
-/**
- * Kill the whole tree.
- *
- * `npx` and the shell sit between this process and the vite server, so killing the child we
- * spawned leaves the server holding the port — which is how a dozen orphaned dev servers ended up
- * fighting over it. `/t` takes the descendants with it.
- */
-function killServer(): void {
-  if (server.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { stdio: 'ignore' });
-  }
-}
-
-async function waitForServer(): Promise<void> {
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    try {
-      const response = await fetch(URL, { method: 'HEAD' });
-      if (response.ok || response.status === 404) return;
-    } catch {
-      // not up yet
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error('dev server did not start');
-}
+let server: ViteServer | null = null;
 
 /**
  * The row where the frame changes fastest vertically, which on an open ocean is the horizon.
@@ -259,7 +226,7 @@ async function capture(page: Page, iso: string, index: number): Promise<unknown>
 
 async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
-  await waitForServer();
+  server = await startVite('dev', options.port);
 
   const browser = await chromium.launch({
     headless: true,
@@ -283,7 +250,7 @@ async function main(): Promise<void> {
   });
   page.on('pageerror', (error) => problems.push(`[pageerror] ${error.message}`));
 
-  await page.goto(URL, { waitUntil: 'load', timeout: 90000 });
+  await page.goto(server.url, { waitUntil: 'load', timeout: 90000 });
   // Deliberately not `waitForFunction(ready)`: if boot fails the debug API never appears, and a
   // wait would throw away the very console output that says why. Wait a fixed interval and report
   // whatever state the page reached.
@@ -328,7 +295,7 @@ async function main(): Promise<void> {
   }
 
   await browser.close();
-  killServer();
+  await server.stop();
 
   const report = { boot: bootState, options, frames, problems: problems.slice(0, 12) };
   const reportPath = resolve(OUT_DIR, `${options.tag}.json`);
@@ -337,8 +304,8 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  killServer();
+  await server?.stop();
   process.exit(1);
 });

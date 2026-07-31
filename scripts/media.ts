@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from '@playwright/test';
+import { startVite, type ViteServer } from './lib/server.js';
 import sharp from 'sharp';
 
 /**
@@ -24,7 +24,6 @@ import sharp from 'sharp';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = resolve(ROOT, 'docs', 'media');
 const PORT = 5198;
-const URL = `http://127.0.0.1:${PORT}/`;
 
 const CAPTURE = { width: 1600, height: 900 };
 const PUBLISH_WIDTH = 800;
@@ -110,30 +109,7 @@ const GIF_FRAMES = 24;
 const GIF_DELAY_MS = 110;
 const GIF_WIDTH = 480;
 
-const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
-  cwd: ROOT,
-  shell: true,
-  stdio: 'ignore',
-});
-
-function killServer(): void {
-  if (server.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { stdio: 'ignore' });
-  }
-}
-
-async function waitForServer(): Promise<void> {
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    try {
-      const response = await fetch(URL, { method: 'HEAD' });
-      if (response.ok || response.status === 404) return;
-    } catch {
-      // not up yet
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error('dev server did not start');
-}
+let server: ViteServer | null = null;
 
 /**
  * How much faster than real time the weather is run forward before a capture.
@@ -174,7 +150,7 @@ async function stage(page: Page, still: Still): Promise<void> {
 
 async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
-  await waitForServer();
+  server = await startVite('dev', PORT);
 
   const browser = await chromium.launch({
     headless: true,
@@ -182,7 +158,7 @@ async function main(): Promise<void> {
   });
   const page = await browser.newPage({ viewport: CAPTURE });
 
-  await page.goto(URL, { waitUntil: 'load', timeout: 90000 });
+  await page.goto(server.url, { waitUntil: 'load', timeout: 90000 });
   await page.waitForTimeout(14000);
   await page.evaluate(
     (at) => {
@@ -258,12 +234,12 @@ async function main(): Promise<void> {
   process.stdout.write(`storm.gif (${frames.length} frames)\n`);
 
   await browser.close();
-  killServer();
+  await server?.stop();
   process.exit(0);
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  killServer();
+  await server?.stop();
   process.exit(1);
 });

@@ -1,8 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type ConsoleMessage, type Page } from '@playwright/test';
+import { startVite } from './lib/server.js';
 
 /**
  * Self-verification.
@@ -28,7 +28,6 @@ const args = new Set(process.argv.slice(2));
 const USE_DEV = args.has('--dev');
 const HEADED = args.has('--headed');
 const PORT = USE_DEV ? 5173 : 4173;
-const URL = `http://127.0.0.1:${PORT}/`;
 
 const VIEWPORT = { width: 1920, height: 1080 };
 /** Seconds to let the scene settle — exposure adaptation and the probe sweep both need time. */
@@ -101,7 +100,8 @@ interface ConsoleIssue {
 async function main(): Promise<void> {
   await mkdir(SHOTS, { recursive: true });
 
-  const server = await startServer();
+  process.stdout.write(`Starting ${USE_DEV ? 'dev' : 'preview'} server on port ${PORT}\n`);
+  const server = await startVite(USE_DEV ? 'dev' : 'preview', PORT);
   const issues: ConsoleIssue[] = [];
   const driverNotes: ConsoleIssue[] = [];
   let exitCode = 0;
@@ -140,8 +140,8 @@ async function main(): Promise<void> {
       issues.push({ type: 'pageerror', text: error.message, location: error.stack ?? '' });
     });
 
-    process.stdout.write(`Loading ${URL}\n`);
-    await page.goto(URL, { waitUntil: 'load', timeout: 90000 });
+    process.stdout.write(`Loading ${server.url}\n`);
+    await page.goto(server.url, { waitUntil: 'load', timeout: 90000 });
 
     await page.waitForFunction(() => window.endlessFishing?.ready() === true, undefined, {
       timeout: 60000,
@@ -280,9 +280,7 @@ async function main(): Promise<void> {
     process.stdout.write(`\nReport written to screenshots/REPORT.md\n`);
   } finally {
     await browser.close();
-    // `npm run …` spawns a shell that spawns node, so killing the direct child leaves the
-    // server holding the port and the process alive. Take the whole tree down.
-    killTree(server);
+    await server.stop();
   }
 
   // Vite's preview server keeps handles open that outlive `kill`, so exit explicitly rather
@@ -290,14 +288,6 @@ async function main(): Promise<void> {
   process.exit(exitCode);
 }
 
-function killTree(child: ChildProcess): void {
-  if (child.pid === undefined) return;
-  if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
-  } else {
-    child.kill('SIGTERM');
-  }
-}
 
 interface Summary {
   sunAltitudeDeg: number;
@@ -350,36 +340,6 @@ async function captureAt(
   return summary;
 }
 
-async function startServer(): Promise<ChildProcess> {
-  const command = USE_DEV ? ['run', 'dev'] : ['run', 'preview'];
-  process.stdout.write(`Starting ${USE_DEV ? 'dev' : 'preview'} server on port ${PORT}\n`);
-
-  const child = spawn('npm', command, {
-    cwd: ROOT,
-    shell: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    const timeout = setTimeout(() => rejectPromise(new Error('Server did not start in 60 s')), 60000);
-    const check = async (): Promise<void> => {
-      try {
-        const response = await fetch(URL, { method: 'HEAD' });
-        if (response.ok || response.status === 404) {
-          clearTimeout(timeout);
-          resolvePromise();
-          return;
-        }
-      } catch {
-        // Not up yet.
-      }
-      setTimeout(() => void check(), 400);
-    };
-    void check();
-  });
-
-  return child;
-}
 
 main().catch((error: unknown) => {
   process.stderr.write(`\nVerification failed: ${error instanceof Error ? error.stack : String(error)}\n`);
