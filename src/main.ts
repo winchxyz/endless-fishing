@@ -1,4 +1,7 @@
 import './ui/styles.css';
+// After styles.css, so the HUD's rules can build on the shell's custom properties rather than
+// redeclaring the palette.
+import './ui/hud.css';
 import { createEngine, type Engine } from './core/Engine.js';
 import { DebugPanel } from './core/DebugPanel.js';
 import { installDebugApi } from './core/DebugApi.js';
@@ -18,6 +21,7 @@ import { Islands } from './world/Islands.js';
 import { Props } from './world/Props.js';
 import { Fish } from './entities/Fish.js';
 import { Birds } from './entities/Birds.js';
+import { UiSystem } from './gameplay/UiSystem.js';
 import { locationFromTimezone, requestLocation } from './world/Geolocation.js';
 
 /**
@@ -65,7 +69,8 @@ async function boot(): Promise<void> {
 
   // Weather is the sole writer of the wind, cloud and pressure fields, so it goes in before
   // anything that reads them. Clouds resolve Sky lazily, so both must follow it.
-  engine.add(new Weather(engine));
+  const weather = new Weather(engine);
+  engine.add(weather);
   const clouds = new Clouds(engine);
   engine.add(clouds);
 
@@ -123,6 +128,12 @@ async function boot(): Promise<void> {
 
   // Registered last so it sees the finished scene; it takes over rendering from the engine.
   engine.add(new PostFX(engine));
+
+  const uiRoot = document.getElementById('ui-root');
+  if (uiRoot === null) throw new Error('#ui-root is missing from index.html');
+  const ui = new UiSystem(uiRoot, engine.settings);
+  ui.attach({ boat, weather });
+  engine.add(ui);
 
   installDebugApi(engine);
 
