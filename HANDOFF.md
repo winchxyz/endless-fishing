@@ -140,7 +140,29 @@ Three things that will cost you time if you do not know them:
     condition checked against a real frame.
 13. **A point source does not belong in the environment probe.** One star occupies a whole texel
     of a 128-pixel cube face — five orders of magnitude of over-representation — and the water
-    reflects it off every wave facet whose normal happens to point at it.
+    reflects it off every wave facet whose normal happens to point at it. The same applies to
+    anything that *reads* the probe: `ef_airLight` samples at mip 1, not mip 0, because a mip 0
+    texel is about the angular size of the sun.
+14. **The probe's lower hemisphere is water.** Anything that fades a distant surface towards "the
+    sky" by sampling the cube along the view ray is sampling half sea. Clamp the elevation above
+    the horizon — `ef_airLight` in `lib/airlight.glsl` is the one place that does it, and both the
+    ocean and `ef_aerialPerspective` go through it.
+15. **A binary test inside a raymarch is a staircase.** `intersectsGround` at a segment's midpoint
+    makes the segment all-lit or all-shadowed, so the integral jumps by a whole segment when the
+    boundary crosses a midpoint. That is what banded every twilight sky, and no amount of table
+    resolution, filtering or dithering downstream fixes it — the value being filtered is itself a
+    staircase. Integrate the crossing analytically instead. A fixed-width `smoothstep` is *not* a
+    fix when the segments are quadratically distributed.
+16. **The sky-view table is parameterised on azimuth from the sun.** `u = 0.5` is therefore the
+    anti-solar meridian — the darkest line in the sky. Anything that samples "the sky" at a single
+    `u` is sampling that. The exposure meter reads whole rows for this reason, and a row read is
+    the same single pipeline flush that one texel costs.
+17. **The camera's crest clamp must run last.** `floatClearOfCrest` before `applyShake` put the eye
+    back under the wave in a big sea, and the ocean is `DoubleSide`, so what that draws is the
+    underside of the water across the near frame.
+18. **`scripts/media.ts` pins a state for every still.** Leaving the weather to the field means the
+    frame photographs whatever the model built over the previous two and a half hours; it built a
+    rain squall once, and 1.4 km of visibility renders every time-of-day frame in one colour.
 
 ## Repository map
 
