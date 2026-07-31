@@ -87,11 +87,15 @@ export class UiSystem implements System {
     stormMinutesAway: 0,
   };
 
+  private readonly help: HTMLElement;
+  private helpDismissed = false;
+
   constructor(host: HTMLElement, settings: Settings) {
     this.hud = new HUD(host);
     this.catchCard = new CatchCard(host);
     this.journal = new Journal(host);
     this.settingsPanel = new SettingsPanel(host, settings);
+    this.help = buildHelpCard(host);
   }
 
   /** Wired after construction because these systems are built after the UI host exists. */
@@ -111,6 +115,14 @@ export class UiSystem implements System {
 
     if (engine.input.wasPressed('journal')) this.journal.toggle();
     if (engine.input.wasPressed('settings')) this.settingsPanel.toggle();
+
+    // The card goes as soon as the player does anything at all. Showing controls until someone
+    // has read them is patronising; showing them until someone has *used* them is just wrong,
+    // because the first thing anybody does is press a key to see what happens.
+    if (!this.helpDismissed && (engine.input.throttleAxis !== 0 || engine.input.rudderAxis !== 0)) {
+      this.helpDismissed = true;
+      this.help.classList.add('is-gone');
+    }
 
     this.refreshDayEvents(engine);
 
@@ -185,4 +197,51 @@ export class UiSystem implements System {
 /** Degrees for a HUD that wants them, without every call site importing the constant. */
 export function toDegrees(radians: number): number {
   return radians * RAD_TO_DEG;
+}
+
+/** The controls the player actually needs, in the order they will need them. */
+const HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ['W / S', 'Throttle'],
+  ['A / D', 'Steer'],
+  ['Shift', 'Boost'],
+  ['Space', 'Anchor — steady the boat to fish'],
+  ['Hold LMB', 'Charge a cast, release to throw'],
+  ['R', 'Reel in — keep the line taut, not tight'],
+  ['C', 'Camera: follow / first person / orbit'],
+  ['J', 'Species journal'],
+  ['Esc', 'Settings — time, location, graphics'],
+];
+
+/**
+ * A card telling the player how to play.
+ *
+ * Obvious in hindsight, and it was missing: everything the game knows about itself was in a
+ * README that a player who opens a link will never see. Built here rather than in `index.html`
+ * so the key list has exactly one definition.
+ */
+function buildHelpCard(host: HTMLElement): HTMLElement {
+  const card = document.createElement('aside');
+  card.className = 'hud-panel help-card';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Endless Fishing';
+  card.appendChild(title);
+
+  const list = document.createElement('dl');
+  for (const [keys, action] of HELP_ROWS) {
+    const term = document.createElement('dt');
+    term.textContent = keys;
+    const detail = document.createElement('dd');
+    detail.textContent = action;
+    list.append(term, detail);
+  }
+  card.appendChild(list);
+
+  const hint = document.createElement('p');
+  hint.className = 'help-card__hint';
+  hint.textContent = 'Anchor first, then cast. Dawn and dusk fish best.';
+  card.appendChild(hint);
+
+  host.appendChild(card);
+  return card;
 }
