@@ -1,6 +1,7 @@
 import type { Engine } from './Engine.js';
 import type { GraphicsSettings, QualityPreset } from './Settings.js';
 import type { Boat } from '../entities/Boat.js';
+import type { FishingSystem } from '../gameplay/FishingSystem.js';
 import type { Ocean } from '../world/Ocean.js';
 import type { Sky } from '../world/Sky.js';
 import type { SkyWeatherFamily } from '../world/SkyLibrary.js';
@@ -66,6 +67,18 @@ export interface HelmSummary {
   anchored: boolean;
 }
 
+export interface FishingSummary {
+  /** idle, charging, casting, sinking, waiting, bite, fighting, landed, escaped. */
+  state: string;
+  /** 0..1 of the line's breaking strain. Pin it and the line goes. */
+  tension: number;
+  hooked: boolean;
+  /** Metres from the rod tip to the fish. */
+  fishDistanceM: number;
+  /** The last specimen landed, or null if nothing has been landed yet this session. */
+  lastCatch: { species: string; massKg: number; lengthM: number; value: number } | null;
+}
+
 export interface EndlessFishingApi {
   readonly version: 1;
   /** True once the first frame has been presented. */
@@ -74,7 +87,20 @@ export interface EndlessFishingApi {
   setTime(isoUtc: string | null): void;
   setTimeScale(scale: number): void;
   setLocation(latitudeDeg: number, longitudeDeg: number): void;
+  /** Pick the panorama family only. The sea is unaffected — use `setWeatherState` for that. */
   setWeather(family: SkyWeatherFamily): void;
+  /**
+   * Pin the whole synoptic state by name, or `null` to hand the sky and the sea back to the
+   * pressure field.
+   *
+   * This is what `setWind` looks like it does and does not: the weather system rewrites the wind
+   * every frame from its own field, so poking `world.windSpeed` is overwritten before the next
+   * frame is drawn. Pinning the state is the only way to photograph a gale.
+   *
+   * Names come from `WEATHER_STATES`: dead-calm, light-breeze, partly-cloudy, overcast, fog,
+   * rain, thunderstorm, storm.
+   */
+  setWeatherState(name: string | null): void;
   setWind(speedMetresPerSecond: number, directionDeg: number): void;
   setCloudiness(fraction: number): void;
   setPreset(preset: QualityPreset): void;
@@ -95,6 +121,15 @@ export interface EndlessFishingApi {
    * slower and less reliable than reading six numbers.
    */
   helm(): HelmSummary | null;
+  /**
+   * Where the fishing loop is.
+   *
+   * The state machine, the bite model, the fight and the save format all have unit tests. What
+   * they cannot cover is whether pressing the keys a player presses actually walks the machine
+   * from idle to landed — every one of those pieces was, at one point, written and wired to
+   * nothing. `scripts/playtest.ts` reads this and plays the loop for real.
+   */
+  fishing(): FishingSummary | null;
   ephemeris(): EphemerisSummary | null;
   /** CPU/GPU wave agreement, in metres. */
   waveParity(): ParityResult | null;
@@ -158,6 +193,11 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
       engine.get<Sky>('sky')?.setWeather(family);
     },
 
+    setWeatherState(name: string | null): void {
+      engine.settings.world.weatherOverride = name;
+      engine.settings.emit('world');
+    },
+
     setWind(speedMetresPerSecond: number, directionDeg: number): void {
       const radians = (directionDeg * Math.PI) / 180;
       engine.world.windSpeed = Math.max(0, speedMetresPerSecond);
@@ -206,6 +246,27 @@ export function installDebugApi(engine: Engine): EndlessFishingApi {
         throttle: boat.throttleSetting,
         wettedFraction: boat.solver.wettedFraction,
         anchored: boat.isAnchored,
+      };
+    },
+
+    fishing(): FishingSummary | null {
+      const fishing = engine.get<FishingSystem>('fishing');
+      if (fishing === undefined) return null;
+      const caught = fishing.lastCatch;
+      return {
+        state: fishing.state,
+        tension: fishing.tension,
+        hooked: fishing.hooked,
+        fishDistanceM: fishing.fishDistanceM,
+        lastCatch:
+          caught === null
+            ? null
+            : {
+                species: caught.species.name,
+                massKg: caught.massKg,
+                lengthM: caught.lengthM,
+                value: caught.value,
+              },
       };
     },
 

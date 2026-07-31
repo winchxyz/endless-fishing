@@ -15,3 +15,13 @@ playwright-report/
 *.log
 probe.json
 verify.log
+
+# The Actions deployment workflow, held out of the repository on purpose.
+#
+# It publishes through `actions/deploy-pages`, which only works once the repository's Pages
+# source is switched from a branch to GitHub Actions. That source is currently the `gh-pages`
+# branch (`build_type: legacy`), so committing the workflow would put a failing run on every
+# push while the site carried on being served from the branch. The file stays on disk as the
+# ready-made second half of that change; flipping the source is the first half, and it is a
+# repository setting rather than a commit.
+.github/workflows/deploy.yml

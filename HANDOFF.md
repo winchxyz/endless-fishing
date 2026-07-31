@@ -33,6 +33,12 @@ npm run build        # zero errors, zero warnings
 npm run dev
 ```
 
+**`npm run verify` previews `dist/`; it does not build.** It starts `vite preview`, so it checks
+whatever was last built rather than what is on disk — run `npm run build` first or you will spend
+three minutes verifying an old bundle. It also therefore runs a PRODUCTION build, where
+`renderer.debug.checkShaderErrors` is off, which is why the driver's PMREM note appears in `dev`
+and not there.
+
 ## Looking at frames
 
 **Verify every visual change on a rendered frame before you call it done.** `scripts/probe.ts` is

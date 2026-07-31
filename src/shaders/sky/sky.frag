@@ -293,27 +293,43 @@ void main() {
   // east, where the transmittance table's clamped edge makes it deep red; it lands in the
   // environment cubemap and the water reflects it. `renderMoon` has always had the equivalent
   // guard; the sun never did.
+  //
+  // The second guard is the one the horizon hunt eventually turned up. The transmittance table
+  // is parameterised on the cosine of the SUN's zenith angle over [0, 1]; a sun below the horizon
+  // is outside its domain entirely, and a clamped fetch there returns the table's edge — the
+  // longest path it knows, which is red-dominant and very much not zero. So a sun 34 degrees
+  // down was still being drawn, at sixty thousand candela per square metre, in a warm red. It is
+  // invisible on screen because the sea covers it, and it is not invisible in the ENVIRONMENT
+  // CUBEMAP: `ef_aerialPerspective` samples that cube towards each object, mip 4 averages the
+  // disc across a whole face, and every distant prop at the waterline came out as an identical
+  // glowing orange lozenge. A row of them along the horizon, evenly spaced on the prop grid.
+  //
+  // Fading over the disc's own angular radius is also just correct. The upper limb is still up
+  // when the centre has set, and a degree after that the atmosphere has the whole thing.
+  float sunAbove = smoothstep(-uSunAngularRadius, uSunAngularRadius, uSunDirection.y);
   vec2 sunDisc = discCoordinates(direction, uSunDirection, uSunAngularRadius, uSunFlattening);
   float sunR2 = dot(sunDisc, sunDisc);
-  if (sunR2 < 1.0 && dot(direction, uSunDirection) > 0.0) {
+  if (sunR2 < 1.0 && sunAbove > 0.0 && dot(direction, uSunDirection) > 0.0) {
     // Extinction along the view ray to the sun, so the disc reddens and dims into the horizon
-    // haze exactly as the surrounding sky does.
+    // haze exactly as the surrounding sky does. Clamped into the table's domain rather than
+    // trusting the sampler's edge behaviour to mean something.
     float radius = GROUND_RADIUS + max(0.0, uAltitudeKm);
-    vec3 extinction = sampleTransmittance(uTransmittanceLut, radius, uSunDirection.y);
+    vec3 extinction = sampleTransmittance(uTransmittanceLut, radius, max(0.0, uSunDirection.y));
     float edge = 1.0 - smoothstep(0.94, 1.0, sunR2);
-    sky += uSunRadiance * extinction * solarLimbDarkening(sqrt(sunR2)) * edge;
+    sky += uSunRadiance * extinction * solarLimbDarkening(sqrt(sunR2)) * edge * sunAbove;
   }
 
   // --- lunar disc ---------------------------------------------------------------------------
+  float moonAbove = smoothstep(-uMoonAngularRadius, uMoonAngularRadius, uMoonDirection.y);
   float moonCoverage;
-  vec3 moon = renderMoon(direction, moonCoverage);
-  if (moonCoverage > 0.0) {
+  vec3 moon = renderMoon(direction, moonCoverage) * moonAbove;
+  if (moonCoverage * moonAbove > 0.0) {
     float radius = GROUND_RADIUS + max(0.0, uAltitudeKm);
     vec3 extinction = sampleTransmittance(uTransmittanceLut, radius, max(0.0, uMoonDirection.y));
     // The moon is occluded by the daytime sky rather than added to it: at noon the disc is
     // still there, just lost in a sky that is thousands of times brighter, which is exactly
     // what happens when you look for a daytime moon.
-    sky = mix(sky, moon * extinction, moonCoverage);
+    sky = mix(sky, moon * extinction, moonCoverage * moonAbove);
   }
 
   gl_FragColor = vec4(hdrClamp(sky * uSkyIntensity), 1.0);

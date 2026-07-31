@@ -4,15 +4,15 @@ An endless ocean, under the sky that is actually above you right now.
 
 **[Play it →](https://winchxyz.github.io/endless-fishing/)**
 
-![The boat at golden hour, under way, with its wake](docs/media/01-golden-hour.png)
+![The boat under way at golden hour, in the swell left behind by a gale](docs/media/01-golden-hour.jpg)
 
 | Dawn — sun +1° | Noon — sun +81° |
 |---|---|
-| ![](docs/media/02-dawn.png) | ![](docs/media/03-noon.png) |
+| ![](docs/media/02-dawn.jpg) | ![](docs/media/03-noon.jpg) |
 | **Civil twilight — sun −8°** | **Moonless night — sun −34°** |
-| ![](docs/media/04-civil-twilight.png) | ![](docs/media/05-night.png) |
-| **Overcast, force 5** | **Storm, force 9** |
-| ![](docs/media/06-overcast.png) | ![](docs/media/07-storm.png) |
+| ![](docs/media/04-civil-twilight.jpg) | ![](docs/media/05-night.jpg) |
+| **Force 5** | **Force 9** |
+| ![](docs/media/06-overcast.jpg) | ![](docs/media/07-storm.jpg) |
 
 ![A force 9 gale](docs/media/storm.gif)
 
@@ -168,9 +168,9 @@ off and diff the rows either side of the horizon.
 
 ## Performance
 
-Measured on an RTX 4070 Laptop at 1080p, High preset: **60 FPS, 157 draw calls** against a budget
-of 300, 900k triangles, 41 shader programs. The triangle count went up by 400k when the ocean was
-extended past the horizon — see `HORIZON_REACH_M` in `world/Ocean.ts` and the curvature term at
+Measured on an RTX 4070 Laptop at 1080p, High preset: **60 FPS, 154–160 draw calls** against a
+budget of 300, 680k–950k triangles depending on the hour, and about 40 shader programs. The
+triangle count went up by 400k when the ocean was extended past the horizon — see `HORIZON_REACH_M` in `world/Ocean.ts` and the curvature term at
 the end of `ocean.vert`, which together are what removed the band that used to sit on the horizon
 of every frame.
 

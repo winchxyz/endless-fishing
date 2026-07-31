@@ -538,9 +538,13 @@ export class Sky implements System {
     // the sky-view table costs a pipeline flush a few times a second and is exact by
     // construction: whatever the atmosphere produces, the exposure follows it.
     //
-    // Sampling the zenith, the horizon and a point between them approximates the hemispheric
-    // average well enough for metering, and weights the horizon lightly because that is where
-    // the sky is brightest but also where the least of the frame is.
+    // Sampling the zenith, the horizon and a point between them approximates the hemisphere well
+    // enough for metering. The weights lean towards the horizon, and that is a statement about
+    // this scene rather than about the sky: nearly the whole frame is water, water at a grazing
+    // angle is a mirror, and what it mirrors is the sky just above the horizon. Weighting the
+    // zenith heavily — which is right for a landscape — over-exposed twilight by two stops,
+    // because at twilight the horizon glow is many times the zenith and it is the horizon glow
+    // that fills the frame.
     this.exposureSampleCountdown -= 1;
     if (this.exposureSampleCountdown <= 0) {
       this.exposureSampleCountdown = EXPOSURE_SAMPLE_INTERVAL;
@@ -551,7 +555,7 @@ export class Sky implements System {
       const luminanceOf = (rgb: [number, number, number]): number =>
         Math.max(0, 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) * scale;
       const skyLuminance =
-        0.42 * luminanceOf(zenith) + 0.38 * luminanceOf(middle) + 0.2 * luminanceOf(horizon);
+        0.28 * luminanceOf(zenith) + 0.32 * luminanceOf(middle) + 0.4 * luminanceOf(horizon);
       // Radiance over the hemisphere back to illuminance on a horizontal surface. The night
       // floor is added here rather than sampled because it never enters the table at all.
       this.measuredSkyIlluminance = (skyLuminance + this.nightFloorLuminance) * Math.PI;

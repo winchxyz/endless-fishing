@@ -113,5 +113,28 @@ Ten open bugs closed, each verified on a rendered frame before it was called don
    warning. It is absent from production builds, where `checkShaderErrors` is off, and
    `npm run verify` now reports it separately from real console issues rather than failing on it.
    Anything containing `ERROR:` still fails the run.
-3. **`AudioBeds` and `Fish`, `Weather`, `BoatGeometry` and several others are over the ~450-line
-   smell threshold.** The audio module has been split; the older ones have not.
+3. **A one-pixel bright line survives on the night horizon.** Measured with bloom, grain and the
+   grade switched off, at 2026-06-21T21:30Z: the sky above the horizon reads (11, 14, 16), the
+   sea below reads (9, 12, 16), and the single row between them reads (62, 64, 67) — about five
+   times either neighbour, and neutral rather than warm. It is invisible on its own; what makes
+   it worth recording is that bloom turns the segments of it that survive antialiasing into small
+   warm blobs, which near a coastline read as a line of harbour lights.
+
+   This is a *residual* of the horizon band, not the band: that was a fourteen-pixel notch at
+   every hour and it is gone. The remaining line only appears after dark. The leading hypothesis
+   is the water's grazing reflection: `R.y = max(R.y, 0.008)` pins every grazing ray onto one ring
+   of the environment cube, and the sky dome now fills the whole lower hemisphere with the horizon
+   radiance, so a mip-filtered sample there is flat where a correct one would fall away. Testing
+   it means dumping the probe's cube faces, which is the next thing to build.
+
+4. **A pinned weather state raises the sea but not the sky.** `scripts/media.ts` pins a state and
+   runs the world forward two and a half hours at 300x before capturing, which is far longer than
+   any of the model's time constants. The wind and the sea answer plainly — the force 9 capture
+   carries a long, heavy swell the calm ones do not — and `cloudiness` does not, so both weather
+   frames come out under a clear sky. The two README frames are therefore labelled by sea state,
+   which is what they actually show. Whatever carries the descriptor's cloud figure into
+   `WorldState.cloudiness` under an override is the thing to look at; the wind path through the
+   same descriptor plainly works.
+
+5. **`Fish`, `Weather`, `BoatGeometry` and several others are over the ~450-line smell
+   threshold.** `AudioBeds` has been split into it and `AudioCurves`; the older ones have not.
