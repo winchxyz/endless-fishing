@@ -24,7 +24,7 @@ import { computeEphemeris, dominantLightBlend, type EphemerisState } from '../as
 import { lunarIlluminanceLux } from '../astro/LunarPosition.js';
 import { SOLAR_CONSTANT_LUX } from '../astro/SolarPosition.js';
 import { horizonFlattening } from '../astro/Refraction.js';
-import { damp, clamp, smoothstep } from '../math/Noise.js';
+import { damp, clamp, lerp as mix, smoothstep } from '../math/Noise.js';
 import skyVert from '../shaders/sky/sky.vert';
 import skyFrag from '../shaders/sky/sky.frag';
 
@@ -352,7 +352,20 @@ export class Sky implements System {
     // How much cloud structure to overlay. Even a "clear" sky gets a little, because a real
     // clear sky is never perfectly smooth, but it rises steeply with cloud fraction.
     const available = resolvedA !== null ? 1 : 0;
-    this.setUniform('uHdriWeight', available * clamp(0.18 + cloudiness * 0.72, 0, 0.95));
+
+    // Fade the panorama out through twilight.
+    //
+    // The night skies in the library were photographed at Qwantani in South Africa, and like
+    // almost every real night photograph they carry a band of sodium light-pollution glow along
+    // the horizon. Normalised and multiplied into the analytic sky at up to three times, that
+    // band became a hard orange stripe across the horizon of an ocean a thousand miles from the
+    // nearest town — someone else's streetlights, in our sky.
+    //
+    // This is also what the design always called for: after dark the sky is the analytic model,
+    // the star catalogue and the Milky Way, with the panorama reduced to low-frequency ambient.
+    const daylight = smoothstep(-8, 2, state.sunAltitudeDeg);
+    const structureWeight = clamp(0.18 + cloudiness * 0.72, 0, 0.95) * mix(0.06, 1, daylight);
+    this.setUniform('uHdriWeight', available * structureWeight);
     this.setUniform('uCloudiness', cloudiness);
   }
 
@@ -488,9 +501,25 @@ export class Sky implements System {
       this.measuredSkyIlluminance = skyLuminance * Math.PI;
     }
 
+    // Specular allowance.
+    //
+    // Metering on diffuse illuminance alone is right for a matte scene and badly wrong for
+    // water. A full moon delivers about a quarter of a lux, which asks for an exposure around
+    // 13 — and at that exposure the moon's glitter path, which is a near-mirror reflection of a
+    // source hundreds of thousands of times brighter than the sky, blows out across a third of
+    // the frame. A photographer metering the same scene would stop down for the highlight.
+    //
+    // So the meter is told about the specular the way an incident meter cannot be: the direct
+    // beam counts for several times its diffuse worth, because that is roughly the ratio between
+    // what a rough water surface returns towards the eye in the glitter path and what it
+    // scatters everywhere else.
+    const SPECULAR_GAIN = 5;
+    const specular = (state.sunIlluminanceLux * 0.02 + state.moonIlluminanceLux) * SPECULAR_GAIN;
+
     const total =
       state.sunIlluminanceLux * 0.35 +
       state.moonIlluminanceLux +
+      specular +
       this.measuredSkyIlluminance * (0.55 + world.cloudiness * 0.45) +
       2.5e-4;
 
