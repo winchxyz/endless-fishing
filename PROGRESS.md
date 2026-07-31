@@ -127,6 +127,18 @@ Ten open bugs closed, each verified on a rendered frame before it was called don
     through white: civil twilight rendered as a flat magenta wash with no gradient in it, sky at
     1.53 where a photographer would put it near 0.7. Each sample is now the mean of a whole row,
     which is a full turn of azimuth and the same single pipeline flush.
+14. **The twilight sky came out in blocks.** Thirty flat bands up the dome, edges on the
+    sky-view table's own texel grid, in every frame between sunset and full dark. It survived a
+    four-times-larger table, a four-times-larger multiple-scattering table, manual bilinear
+    filtering in the shader and a triangular-PDF output dither — because what was being filtered
+    was itself a staircase. `skyview.frag` tested `intersectsGround` at each march segment's
+    *midpoint*, so a segment was all-lit or all-shadowed and the integral jumped by one whole
+    segment the moment the Earth's shadow crossed a midpoint. The elevation of the sun above a
+    sample's own local horizon is very nearly linear across one segment, so the lit fraction is
+    just where that line crosses zero: exact, unbiased, and it scales with the segment
+    automatically. A fixed-width `smoothstep` does *not* work — the segments are quadratically
+    distributed and span hundreds of metres to tens of kilometres, so one width shifts the balance
+    between the reddened low samples and the blue high ones and turns the sky orange.
 
 ## Known issues
 

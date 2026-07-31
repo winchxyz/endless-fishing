@@ -404,3 +404,29 @@ Each sample is now the mean of a whole row: a full turn of azimuth, read with on
 flush that reading one texel costs, so the exact hemispherical average is cheaper here than four
 more point samples would have been.
 
+### 31. A binary shadow test inside a raymarch is a staircase
+
+The sky-view march tested whether each sample could see the sun with `intersectsGround`, at the
+segment's midpoint. That makes every segment all-lit or all-shadowed, so at twilight — the only
+time the Earth's shadow crosses a view ray — the integral jumps by one whole segment's worth the
+moment the boundary passes a midpoint. Tilt the ray a fraction of a degree and it lands on a
+different segment. The sky comes out in thirty flat blocks up the dome.
+
+The instructive part is what does *not* fix it. Not a four-times-larger sky-view table, not a
+four-times-larger multiple-scattering table, not manual bilinear filtering in the fragment shader,
+not a triangular-PDF dither at the output — because none of them changes the fact that the
+quantity being interpolated is a staircase. Nor does softening the test with a `smoothstep`: the
+march distributes its segments quadratically, so they run from a few hundred metres near the
+observer to tens of kilometres at the top, and a single transition width is far too wide for the
+near ones and far too narrow for the far ones. That shifts the balance between the reddened low
+samples and the blue high ones, and the whole sky goes orange.
+
+What works is to stop sampling the step function and integrate it. The sun's elevation above a
+point's own local horizon is very nearly linear across one segment, so the sunlit fraction is
+simply where that line crosses zero — the exact integral of the binary test over the segment. No
+bias, no width to tune, and it scales with the segment automatically. Two extra `length` calls per
+step, in a table that rebuilds when the sun moves 0.15 degrees.
+
+The step count is floored at 32 for the same reason: the table is not a per-frame cost, so tying
+its accuracy to a per-frame quality knob buys nothing.
+

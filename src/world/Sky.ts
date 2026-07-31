@@ -377,7 +377,12 @@ export class Sky implements System {
       engine.renderer,
       state.sunAltitudeDeg,
       DEFAULT_EYE_HEIGHT_M / 1000,
-      Math.max(16, Math.round(engine.settings.graphics.cloudSteps * 0.6)),
+      // Never below thirty-two, whatever the preset says. The table is a function of the sun's
+      // altitude alone and rebuilds only when that moves by 0.15 degrees — once every twenty
+      // seconds of real time — so its step count is not a per-frame cost and tying it to a knob
+      // that *is* one buys nothing. At sixteen steps the twilight arch, which is the steepest
+      // gradient the sky ever has, still shows the segment structure of the march.
+      Math.max(32, Math.round(engine.settings.graphics.cloudSteps * 0.6)),
     );
     if (rebuilt) this.probe.invalidate();
   }

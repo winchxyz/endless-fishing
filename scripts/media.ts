@@ -55,26 +55,32 @@ interface Still {
  *
  * The boat drifts between captures and drives during the one that is under way, so by the end of
  * a run it is a long way from where it started and quite possibly under a headland. The night
- * frame is the one that suffers from that — see the horizon note in PROGRESS.md — so it is taken
- * first, while the boat is still in open water, and the frame that needs the boat to travel is
- * taken last.
+ * frame is the one that suffers from that, so it is taken first, while the boat is still in open
+ * water, and the frame that needs the boat to travel is taken last.
+ *
+ * Every still pins a state, including the ones that are about the hour rather than the weather.
+ * That is not the model being distrusted: it is that a matrix whose top four cells are labelled by
+ * solar altitude has to *vary* by solar altitude, and leaving the weather to the field means the
+ * dawn frame is whatever the field happened to build over the last two and a half hours. It built
+ * a rain squall, and a rain squall at 1.4 km of visibility renders every one of those four cells
+ * in the same single colour — correctly, which is the point. The weather cells carry the weather.
  */
 const STILLS: readonly Still[] = [
   {
     name: '05-night',
     iso: '2026-06-21T21:30:00Z',
     note: 'sun -34 deg, moon down',
-    weather: null,
+    weather: 'partly-cloudy',
     underWay: false,
     settleSeconds: 8,
   },
-  { name: '02-dawn', iso: '2026-06-21T02:45:00Z', note: 'sun +1.0 deg', weather: null, underWay: false, settleSeconds: 8 },
-  { name: '03-noon', iso: '2026-06-21T09:45:00Z', note: 'sun +81 deg', weather: null, underWay: false, settleSeconds: 8 },
+  { name: '02-dawn', iso: '2026-06-21T02:45:00Z', note: 'sun +1.0 deg', weather: 'light-breeze', underWay: false, settleSeconds: 8 },
+  { name: '03-noon', iso: '2026-06-21T09:45:00Z', note: 'sun +81 deg', weather: 'light-breeze', underWay: false, settleSeconds: 8 },
   {
     name: '04-civil-twilight',
     iso: '2026-06-21T17:30:00Z',
     note: 'sun -8 deg',
-    weather: null,
+    weather: 'light-breeze',
     underWay: false,
     settleSeconds: 7,
   },
@@ -98,7 +104,7 @@ const STILLS: readonly Still[] = [
     name: '01-golden-hour',
     iso: '2026-06-21T16:30:00Z',
     note: 'sun +2.9 deg, under way',
-    weather: null,
+    weather: 'partly-cloudy',
     underWay: true,
     settleSeconds: 40,
   },

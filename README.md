@@ -4,7 +4,7 @@ An endless ocean, under the sky that is actually above you right now.
 
 **[Play it →](https://winchxyz.github.io/endless-fishing/)**
 
-![The boat under way at golden hour, in the swell left behind by a gale](docs/media/01-golden-hour.jpg)
+![The boat under way at golden hour under a broken sky](docs/media/01-golden-hour.jpg)
 
 | Dawn — sun +1° | Noon — sun +81° |
 |---|---|

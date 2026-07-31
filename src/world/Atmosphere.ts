@@ -41,8 +41,24 @@ import skyviewFrag from '../shaders/sky/skyview.frag';
 const TRANSMITTANCE_WIDTH = 256;
 const TRANSMITTANCE_HEIGHT = 64;
 const MULTISCATTER_SIZE = 32;
-const SKYVIEW_WIDTH = 192;
-const SKYVIEW_HEIGHT = 108;
+/**
+ * Sky-view table, and it is four times Hillaire's 192x108 for a reason that is about this scene
+ * rather than about the atmosphere.
+ *
+ * The table is bilinear, so what the sky dome actually shows is a piecewise-linear surface — flat
+ * facets meeting along texel boundaries. On a daytime sky nobody can see it. On a twilight sky,
+ * which is one very smooth ramp through violet across the whole dome, the slope discontinuities
+ * read as hard-edged bands: at 192 texels around the compass a 70-degree field of view gets
+ * thirty-seven of them, which is one band every thirty pixels at 1280 wide — measured on the live
+ * build, and exactly the spacing in the picture.
+ *
+ * Doubling both axes quarters the texel and cuts the discontinuity by sixteen, which puts it
+ * under the eye. It is nearly free: the table is a function of the sun's altitude alone and
+ * rebuilds only when that moves by 0.15 degrees, which is once every twenty seconds of real time,
+ * and it is 663 kB of half-float.
+ */
+const SKYVIEW_WIDTH = 384;
+const SKYVIEW_HEIGHT = 216;
 
 /** Degrees of solar altitude change that triggers a rebuild. */
 const REBUILD_THRESHOLD_DEG = 0.15;
