@@ -12,15 +12,39 @@ work on this repository, not a to-do list — for what is still open, see the en
 
 **https://winchxyz.github.io/endless-fishing/** — GitHub repo `winchxyz/endless-fishing`.
 
-Deployed by building and force-pushing `dist` to the `gh-pages` branch.
+Deployed by GitHub Actions. Push to `main` and `.github/workflows/deploy.yml` builds it and
+publishes it; the Pages source is "GitHub Actions", not a branch. The run fetches and processes the
+CC0 assets, runs the unit tests, builds, asserts the bundle is publishable, and deploys. Nothing is
+force-pushed by hand any more.
 
-**Build the deployment from PowerShell, not from Git Bash.** MSYS rewrites any argument that
-looks like a POSIX path, so `VITE_BASE=/endless-fishing/ npm run build` under Git Bash silently
-becomes `VITE_BASE=C:/Program Files/Git/endless-fishing/` and every script and stylesheet tag in
-`index.html` comes out pointing at `/Program Files/Git/endless-fishing/assets/…`. The assets
-upload fine and return 200 at their real URLs, so nothing in the deploy fails — the site simply
-never boots, and sits on its loading screen forever. That went live once. Check the tag before
-you believe a deploy:
+Two things about that workflow are load-bearing and not obvious:
+
+* **`assets/` is Vite's `publicDir` and is git-ignored**, so the site is built *out of* it. Skip the
+  fetch and the bundle still compiles, uploads and deploys — to a page that boots into a game with
+  no sky and no water. The `Assert the bundle is publishable` step exists for that, and for the one
+  other silent failure: a wrong `VITE_BASE`, which produces a page that returns 200 and 404s every
+  asset in it. Everything else in the pipeline fails loudly and leaves the live site alone.
+* **The `github-pages` environment has a branch policy.** `main` and `gh-pages` are both allowed. If
+  the deploy job ever reports *"Branch X is not allowed to deploy to github-pages due to environment
+  protection rules"*, that list is what it means — `gh api repos/winchxyz/endless-fishing/environments/github-pages/deployment-branch-policies`.
+
+Then prove the deployed site boots, rather than trusting a 200:
+
+```bash
+npm run smoke      # loads the live URL, waits for the first frame, reports the frame stats
+```
+
+**Rollback.** The `gh-pages` branch is still there and still holds a working build. Settings → Pages
+→ Source: "Deploy from a branch" → `gh-pages` republishes it. That is a rebuild rather than an
+instant swap, but it needs no commit and no CI.
+
+To deploy by hand anyway — and this is the trap that cost a live outage — **build from PowerShell,
+not from Git Bash.** MSYS rewrites any argument that looks like a POSIX path, so
+`VITE_BASE=/endless-fishing/ npm run build` under Git Bash silently becomes
+`VITE_BASE=C:/Program Files/Git/endless-fishing/` and every script and stylesheet tag in
+`index.html` comes out pointing at `/Program Files/Git/endless-fishing/assets/…`. The assets upload
+fine and return 200 at their real URLs, so nothing in the deploy fails — the site simply never
+boots, and sits on its loading screen forever. That went live once.
 
 ```powershell
 $env:VITE_BASE = "/endless-fishing/"
@@ -32,16 +56,6 @@ Select-String -Path dist\index.html -Pattern 'src="[^"]+"'   # must read /endles
 cd dist && rm -rf .git && git init -b gh-pages && git add -A && git commit -m "Deploy"
 git push -f https://github.com/winchxyz/endless-fishing.git HEAD:gh-pages
 ```
-
-Then prove the deployed site boots, rather than trusting a 200:
-
-```bash
-npm run smoke      # loads the live URL, waits for the first frame, reports the frame stats
-```
-
-`.github/workflows/deploy.yml` exists on disk but **is not in the repo** — the token has `repo`
-scope but not `workflow`, so GitHub rejects any push containing it. To enable proper CI:
-`gh auth refresh -s workflow`, then commit the file and switch Pages source to Actions.
 
 ## Build
 

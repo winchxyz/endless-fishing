@@ -230,7 +230,13 @@ async function fetchTexture(
   lock: Lockfile,
 ): Promise<void> {
   // Check the cheapest map first; if it is present and locked, the whole set was extracted.
-  const probe = `textures/${id}/${id}_Color.jpg`;
+  //
+  // The probe has to be spelt the way the *archive* spells it, which includes the resolution and
+  // the format — `Rock064_1K-JPG_Color.jpg`, not `Rock064_Color.jpg`. It did not, so it never
+  // matched a lockfile entry, `isSatisfied` was always false and all eleven ambientCG archives
+  // came down again on every single run: seventy-three megabytes of exactly the files already on
+  // disk. Silent, because the extraction that follows is idempotent and the checksums agree.
+  const probe = `textures/${id}/${id}_${resolution}-JPG_Color.jpg`;
   if (await isSatisfied(lock, probe)) return;
 
   const url = `https://ambientcg.com/get?file=${id}_${resolution}-JPG.zip`;

@@ -1,0 +1,118 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages needs these; the default token is read-only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and an in-flight one is never cancelled: a half-written Pages tree is
+# worse than a stale one. Pushes arriving during a deploy queue behind it, and if several arrive
+# only the newest survives — the intermediate ones are dropped, which is what you want, because
+# every one of them would have published a commit that main has already moved past.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The default is six hours. This job talks to two third-party CDNs, so a stalled socket with
+    # no deadline would hold the `pages` concurrency lane for the rest of the day.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `assets/` is Vite's `publicDir` and is git-ignored, so the site is *built out of* it: the
+      # sky panoramas, the processed textures, the star catalogue and the lunar maps are copied
+      # into `dist` by the build itself. Without them the bundle still compiles, still uploads and
+      # still deploys — to a page that boots into a game with no sky and no water. There is an
+      # assertion below for exactly that reason.
+      #
+      # Cached because a cold runner pulls about 130 MB from four hosts. The key covers everything
+      # that can change the bytes, and there are deliberately no `restore-keys`: a partial match
+      # would hand the texture pass a manifest whose sources had moved.
+      - name: Cache fetched and processed assets
+        uses: actions/cache@v4
+        with:
+          path: assets
+          key: >-
+            assets-v1-${{ runner.os }}-${{ hashFiles('assets.lock.json',
+            'scripts/asset-manifest.ts', 'scripts/fetch-assets.ts',
+            'scripts/process-textures.ts', 'scripts/lib/zip.ts') }}
+
+      # Both steps run unconditionally rather than behind a cache-hit check. They are idempotent —
+      # each verifies what is already on disk against `assets.lock.json` and does nothing when it
+      # matches — so on a warm cache this is a checksum pass over 103 MB and no download at all,
+      # and on a partial cache it completes what is missing instead of building on a hole.
+      #
+      # Assets are never committed. The lockfile is, so this either reproduces byte-identical files
+      # or fails loudly: if Poly Haven or ambientCG re-encode something, the deploy stops until a
+      # human has looked at the new file and re-run with `--update-lock`. That is the intended
+      # trade — a wrong asset is worse than a late one — but it does mean a third party can red a
+      # build that changed only game code.
+      - name: Fetch CC0 assets
+        run: npm run assets
+
+      - name: Process textures
+        run: npm run textures
+
+      - name: Unit tests
+        run: npm run test:run
+
+      # `npm run build` is `tsc --noEmit && vite build`, so a type error stops here.
+      # Served from https://<user>.github.io/<repo>/, so the base has to match the repo name.
+      - name: Build
+        run: npm run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+
+      # The one way this pipeline could go green and still publish a dead page.
+      #
+      # Every other failure mode is loud: a bad fetch, a type error, a failing test and a rejected
+      # deploy all stop the run and leave the live site untouched. A wrong base path does not — the
+      # bundle builds, uploads and deploys perfectly, and every asset in it 404s. Nor does an empty
+      # public directory, which would deploy a game with no sky. Both are cheap to assert and
+      # neither can be caught after the fact without opening the page.
+      - name: Assert the bundle is publishable
+        run: |
+          set -euo pipefail
+          base="/${{ github.event.repository.name }}/"
+          grep -q "src=\"${base}assets/" dist/index.html \
+            || { echo "::error::index.html does not reference ${base} — VITE_BASE did not apply"; exit 1; }
+          for required in dist/hdri dist/processed dist/stars; do
+            [ -d "$required" ] \
+              || { echo "::error::${required} is missing — publicDir was not populated"; exit 1; }
+          done
+          [ -s dist/processed/manifest.json ] \
+            || { echo "::error::dist/processed/manifest.json is empty — the texture pass produced nothing"; exit 1; }
+          echo "base ${base}, $(du -sh dist | cut -f1) published"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
