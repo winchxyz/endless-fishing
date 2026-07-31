@@ -19,6 +19,8 @@
     "textures": "tsx scripts/process-textures.ts",
     "verify": "tsx scripts/verify.ts",
     "probe": "tsx scripts/probe.ts",
+    "playtest": "tsx scripts/playtest.ts",
+    "smoke": "tsx scripts/smoke.ts",
     "media": "tsx scripts/media.ts"
   },
   "dependencies": {

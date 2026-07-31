@@ -32,6 +32,8 @@ npm run assets     # download + verify CC0 assets into assets/
 npm run textures   # process downloaded textures -> KTX2 / ORM packing
 npm run verify     # playwright: boot, assert zero console errors, capture screenshots, log FPS
 npm run probe      # playwright: capture chosen moments, photometry, helm, horizon zooms
+npm run playtest   # playwright: play the loop with the real keys and assert it closes
+npm run smoke      # playwright: load the DEPLOYED site and prove it boots
 npm run media      # regenerate docs/media/ — the stills and the storm GIF the README shows
 npm run lint       # tsc --noEmit
 ```

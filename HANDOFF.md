@@ -12,12 +12,31 @@ work on this repository, not a to-do list — for what is still open, see the en
 
 **https://winchxyz.github.io/endless-fishing/** — GitHub repo `winchxyz/endless-fishing`.
 
-Deployed by building and force-pushing `dist` to the `gh-pages` branch:
+Deployed by building and force-pushing `dist` to the `gh-pages` branch.
+
+**Build the deployment from PowerShell, not from Git Bash.** MSYS rewrites any argument that
+looks like a POSIX path, so `VITE_BASE=/endless-fishing/ npm run build` under Git Bash silently
+becomes `VITE_BASE=C:/Program Files/Git/endless-fishing/` and every script and stylesheet tag in
+`index.html` comes out pointing at `/Program Files/Git/endless-fishing/assets/…`. The assets
+upload fine and return 200 at their real URLs, so nothing in the deploy fails — the site simply
+never boots, and sits on its loading screen forever. That went live once. Check the tag before
+you believe a deploy:
+
+```powershell
+$env:VITE_BASE = "/endless-fishing/"
+npm run build
+Select-String -Path dist\index.html -Pattern 'src="[^"]+"'   # must read /endless-fishing/assets/…
+```
 
 ```bash
-VITE_BASE=/endless-fishing/ npm run build
-cd dist && git init -b gh-pages && git add -A && git commit -m "Deploy"
+cd dist && rm -rf .git && git init -b gh-pages && git add -A && git commit -m "Deploy"
 git push -f https://github.com/winchxyz/endless-fishing.git HEAD:gh-pages
+```
+
+Then prove the deployed site boots, rather than trusting a 200:
+
+```bash
+npm run smoke      # loads the live URL, waits for the first frame, reports the frame stats
 ```
 
 `.github/workflows/deploy.yml` exists on disk but **is not in the repo** — the token has `repo`
@@ -63,10 +82,12 @@ Three things that will cost you time if you do not know them:
    time override and every held key, and you get a frame of a stationary boat at the wrong hour
    with no indication anything went wrong. Two rounds of analysis were spent on frames ruined
    this way.
-2. **The probe claims port 5199 with `--strictPort`.** Vite silently walks to the next free port
+2. **A 200 is not a working page.** See the deployment note above: a build whose base path was
+   mangled uploads cleanly, serves every asset at 200, and never starts. Grep the served HTML.
+3. **The probe claims port 5199 with `--strictPort`.** Vite silently walks to the next free port
    when its default is taken, and a probe that connects to whatever else is on 5173 will happily
    photograph a completely different working tree. That happened.
-3. **Read the pixels, do not eyeball them.**
+4. **Read the pixels, do not eyeball them.**
    `npx tsx scripts/inspect.ts rows <png> <y0> <y1> <x0> <x1>` prints the mean RGB of each row
    over a column range, and `... crop <png> <x> <y> <w> <h> <scale> <out>` magnifies a region
    with a nearest-neighbour filter. The horizon band was finally identified from a table of twenty
